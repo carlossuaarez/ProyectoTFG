@@ -5,7 +5,7 @@
         'type' => 'library',
         'install_path' => __DIR__ . '/../../',
         'aliases' => array(),
-        'reference' => 'bebc2ee612aeb2077ea242dd4a7f55ae9bd32a79',
+        'reference' => '7eaee3aa7495b182e6f6d75634ecda4f0bfb2cfd',
         'name' => '__root__',
         'dev' => true,
     ),
@@ -16,7 +16,7 @@
             'type' => 'library',
             'install_path' => __DIR__ . '/../../',
             'aliases' => array(),
-            'reference' => 'bebc2ee612aeb2077ea242dd4a7f55ae9bd32a79',
+            'reference' => '7eaee3aa7495b182e6f6d75634ecda4f0bfb2cfd',
             'dev_requirement' => false,
         ),
         'fig/http-message-util' => array(
@@ -26,6 +26,15 @@
             'install_path' => __DIR__ . '/../fig/http-message-util',
             'aliases' => array(),
             'reference' => '9d94dc0154230ac39e5bf89398b324a86f63f765',
+            'dev_requirement' => false,
+        ),
+        'firebase/php-jwt' => array(
+            'pretty_version' => 'v7.0.5',
+            'version' => '7.0.5.0',
+            'type' => 'library',
+            'install_path' => __DIR__ . '/../firebase/php-jwt',
+            'aliases' => array(),
+            'reference' => '47ad26bab5e7c70ae8a6f08ed25ff83631121380',
             'dev_requirement' => false,
         ),
         'graham-campbell/result-type' => array(

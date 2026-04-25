@@ -22,6 +22,11 @@ $app->addBodyParsingMiddleware();
 $app->addRoutingMiddleware();
 $app->addErrorMiddleware(true, true, true);
 
+$app->get('/', function (Request $req, Response $res) {
+    $res->getBody()->write('API TourneyHub funcionando 🚀');
+    return $res->withHeader('Content-Type', 'text/plain');
+});
+
 // Middleware CORS
 $app->add(function ($request, $handler) {
     $response = $handler->handle($request);
