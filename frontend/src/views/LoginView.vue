@@ -29,28 +29,70 @@ async function handleLogin() {
 </script>
 
 <style scoped>
-.form-container {
-  max-width: 400px;
-  margin: 2rem auto;
-  padding: 2rem;
+.auth-wrapper {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 60vh;
+}
+.auth-card {
   background: white;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  padding: 2.5rem;
+  border-radius: 16px;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.12);
+  width: 100%;
+  max-width: 420px;
 }
-input {
+.auth-card h2 {
+  text-align: center;
+  margin-bottom: 1.5rem;
+  color: #1a1a2e;
+}
+.input-group {
+  margin-bottom: 1.2rem;
+}
+.input-group label {
   display: block;
-  width: 100%;
-  margin-bottom: 1rem;
-  padding: 0.5rem;
-  box-sizing: border-box;
+  margin-bottom: 0.3rem;
+  font-weight: 600;
+  color: #333;
 }
-button {
+.input-group input {
   width: 100%;
-  padding: 0.7rem;
-  background: #2c3e50;
+  padding: 0.7rem 1rem;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  font-size: 1rem;
+  transition: border-color 0.2s;
+}
+.input-group input:focus {
+  outline: none;
+  border-color: #f0c040;
+}
+.submit-btn {
+  width: 100%;
+  padding: 0.8rem;
+  background: linear-gradient(135deg, #302b63, #24243e);
   color: white;
   border: none;
-  border-radius: 4px;
+  border-radius: 8px;
+  font-size: 1.1rem;
+  font-weight: 600;
   cursor: pointer;
+  margin-top: 0.5rem;
+  transition: opacity 0.2s;
+}
+.submit-btn:hover {
+  opacity: 0.9;
+}
+.switch-page {
+  text-align: center;
+  margin-top: 1.2rem;
+  color: #666;
+}
+.switch-page a {
+  color: #e94560;
+  text-decoration: none;
+  font-weight: 600;
 }
 </style>
