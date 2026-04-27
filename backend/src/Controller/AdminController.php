@@ -2,39 +2,93 @@
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 
-class AdminController {
-    private $db;
+class AdminController
+{
+    private PDO $db;
 
-    public function __construct($db) {
+    public function __construct(PDO $db)
+    {
         $this->db = $db;
     }
 
-    // Obtener todos los torneos (para el panel, incluyendo los no empezados)
-    public function getAllTournaments(Request $req, Response $res) {
-        $user = $req->getAttribute('user');
-        if ($user['role'] !== 'admin') {
-            $res->getBody()->write(json_encode(['error' => 'No autorizado']));
-            return $res->withStatus(403)->withHeader('Content-Type', 'application/json');
+    // Panel admin: listar todos los torneos con campos ampliados
+    public function getAllTournaments(Request $req, Response $res): Response
+    {
+        $user = (array)$req->getAttribute('user');
+        if (($user['role'] ?? '') !== 'admin') {
+            return $this->json($res, ['error' => 'No autorizado'], 403);
         }
 
-        $stmt = $this->db->query("SELECT * FROM tournaments ORDER BY created_at DESC");
-        $tournaments = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        $res->getBody()->write(json_encode($tournaments));
-        return $res->withHeader('Content-Type', 'application/json');
+        try {
+            $stmt = $this->db->query("
+                SELECT
+                    t.id,
+                    t.name,
+                    t.description,
+                    t.game,
+                    t.type,
+                    t.max_teams,
+                    t.format,
+                    t.start_date,
+                    t.start_time,
+                    t.prize,
+                    t.location_name,
+                    t.location_address,
+                    t.location_lat,
+                    t.location_lng,
+                    t.is_online,
+                    t.visibility,
+                    t.access_code_last4,
+                    t.created_by,
+                    t.created_at
+                FROM tournaments t
+                ORDER BY t.start_date ASC, t.start_time ASC, t.created_at DESC
+            ");
+
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Seguridad: nunca exponer access_code_hash en respuestas
+            foreach ($rows as &$row) {
+                unset($row['access_code_hash']);
+            }
+
+            return $this->json($res, $rows);
+        } catch (Throwable $e) {
+            error_log('admin getAllTournaments error: ' . $e->getMessage());
+            return $this->json($res, ['error' => 'No se pudo cargar el panel de administración'], 500);
+        }
     }
 
-    // Eliminar un torneo
-    public function deleteTournament(Request $req, Response $res, array $args) {
-        $user = $req->getAttribute('user');
-        if ($user['role'] !== 'admin') {
-            $res->getBody()->write(json_encode(['error' => 'No autorizado']));
-            return $res->withStatus(403)->withHeader('Content-Type', 'application/json');
+    public function deleteTournament(Request $req, Response $res, array $args): Response
+    {
+        $user = (array)$req->getAttribute('user');
+        if (($user['role'] ?? '') !== 'admin') {
+            return $this->json($res, ['error' => 'No autorizado'], 403);
         }
 
-        $id = $args['id'];
-        $stmt = $this->db->prepare("DELETE FROM tournaments WHERE id = ?");
-        $stmt->execute([$id]);
-        $res->getBody()->write(json_encode(['message' => 'Torneo eliminado']));
-        return $res->withHeader('Content-Type', 'application/json');
+        $id = (int)($args['id'] ?? 0);
+        if ($id <= 0) {
+            return $this->json($res, ['error' => 'ID de torneo no válido'], 400);
+        }
+
+        try {
+            $stmt = $this->db->prepare("DELETE FROM tournaments WHERE id = ?");
+            $stmt->execute([$id]);
+
+            if ($stmt->rowCount() === 0) {
+                return $this->json($res, ['error' => 'Torneo no encontrado'], 404);
+            }
+
+            return $this->json($res, ['message' => 'Torneo eliminado']);
+        } catch (Throwable $e) {
+            error_log('admin deleteTournament error: ' . $e->getMessage());
+            return $this->json($res, ['error' => 'No se pudo eliminar el torneo'], 500);
+        }
+    }
+
+    private function json(Response $res, array $payload, int $status = 200): Response
+    {
+        $res->getBody()->write(json_encode($payload, JSON_UNESCAPED_UNICODE));
+        return $res->withStatus($status)->withHeader('Content-Type', 'application/json');
     }
 }

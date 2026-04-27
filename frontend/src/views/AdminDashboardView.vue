@@ -1,9 +1,43 @@
 <template>
   <section class="admin-page">
     <header class="admin-head">
-      <h1>Panel de Administracion</h1>
-      <p>Gestiona torneos publicados y manten la plataforma ordenada.</p>
+      <h1>Panel de Administración</h1>
+      <p>Gestiona torneos, revisa su estado y elimina eventos cuando sea necesario.</p>
     </header>
+
+    <div class="filters-panel">
+      <div class="field">
+        <label for="search">Buscar</label>
+        <input
+          id="search"
+          v-model.trim="searchTerm"
+          placeholder="Nombre, disciplina, lugar..."
+        />
+      </div>
+
+      <div class="field">
+        <label for="typeFilter">Categoría</label>
+        <select id="typeFilter" v-model="typeFilter">
+          <option value="all">Todas</option>
+          <option value="sports">Deporte</option>
+          <option value="esports">e-Sports</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="visibilityFilter">Visibilidad</label>
+        <select id="visibilityFilter" v-model="visibilityFilter">
+          <option value="all">Todas</option>
+          <option value="public">Público</option>
+          <option value="private">Privado</option>
+        </select>
+      </div>
+
+      <div class="stats-box">
+        <strong>{{ filteredTournaments.length }}</strong>
+        <span>resultados</span>
+      </div>
+    </div>
 
     <div v-if="loading" class="state-box">Cargando torneos...</div>
 
@@ -13,54 +47,97 @@
     </div>
 
     <div v-else class="table-wrapper">
-      <table v-if="tournaments.length > 0">
+      <table v-if="filteredTournaments.length > 0">
         <thead>
           <tr>
             <th>Nombre</th>
-            <th>Juego/Deporte</th>
-            <th>Tipo</th>
+            <th>Categoría</th>
+            <th>Disciplina</th>
             <th>Inicio</th>
-            <th>Accion</th>
+            <th>Ubicación</th>
+            <th>Visibilidad</th>
+            <th>Equipos máx.</th>
+            <th>Acción</th>
           </tr>
         </thead>
+
         <tbody>
-          <tr v-for="t in tournaments" :key="t.id">
-            <td>{{ t.name }}</td>
-            <td>{{ t.game }}</td>
+          <tr v-for="t in filteredTournaments" :key="t.id">
             <td>
-              <span class="badge" :class="t.type">{{ t.type === 'esports' ? 'e-Sports' : 'Deporte' }}</span>
+              <div class="name-cell">
+                <strong>{{ t.name }}</strong>
+                <small>{{ shortDescription(t.description) }}</small>
+              </div>
             </td>
-            <td>{{ formatDate(t.start_date) }}</td>
+
             <td>
-              <button class="delete-btn" type="button" @click="deleteTournament(t.id)">Eliminar</button>
+              <span class="badge type" :class="t.type">
+                {{ t.type === 'esports' ? 'e-Sports' : 'Deporte' }}
+              </span>
+            </td>
+
+            <td>{{ t.game || '-' }}</td>
+            <td>{{ formatDateTime(t.start_date, t.start_time) }}</td>
+
+            <td>
+              <div class="location-cell">
+                <span>{{ Number(t.is_online) === 1 ? 'Online' : (t.location_name || 'Pendiente') }}</span>
+                <small v-if="Number(t.is_online) !== 1 && t.location_address">{{ t.location_address }}</small>
+              </div>
+            </td>
+
+            <td>
+              <span class="badge visibility" :class="t.visibility">
+                {{ t.visibility === 'private' ? 'Privado' : 'Público' }}
+              </span>
+              <small v-if="t.visibility === 'private' && t.access_code_last4" class="code-last4">
+                ****{{ t.access_code_last4 }}
+              </small>
+            </td>
+
+            <td>{{ t.max_teams }}</td>
+
+            <td>
+              <div class="actions-cell">
+                <router-link class="view-btn" :to="buildTournamentRoute(t)">
+                  Ver
+                </router-link>
+                <button class="delete-btn" type="button" @click="deleteTournament(t.id)">
+                  Eliminar
+                </button>
+              </div>
             </td>
           </tr>
         </tbody>
       </table>
 
       <div v-else class="empty">
-        <p>No hay torneos en el panel de administracion.</p>
+        <p>No hay torneos que coincidan con los filtros.</p>
       </div>
     </div>
   </section>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import api from '../services/api'
 
 const tournaments = ref([])
 const loading = ref(true)
 const error = ref('')
 
+const searchTerm = ref('')
+const typeFilter = ref('all')
+const visibilityFilter = ref('all')
+
 async function fetchAdminTournaments() {
   loading.value = true
   error.value = ''
   try {
     const res = await api.get('/admin/tournaments')
-    tournaments.value = res.data
+    tournaments.value = Array.isArray(res.data) ? res.data : []
   } catch (e) {
-    error.value = 'No se pudo cargar el panel de administracion.'
+    error.value = e.response?.data?.error || 'No se pudo cargar el panel de administración.'
   } finally {
     loading.value = false
   }
@@ -68,20 +145,70 @@ async function fetchAdminTournaments() {
 
 onMounted(fetchAdminTournaments)
 
+const filteredTournaments = computed(() => {
+  const q = searchTerm.value.toLowerCase()
+
+  return tournaments.value
+    .filter((t) => (typeFilter.value === 'all' ? true : t.type === typeFilter.value))
+    .filter((t) => (visibilityFilter.value === 'all' ? true : t.visibility === visibilityFilter.value))
+    .filter((t) => {
+      if (!q) return true
+
+      const haystack = [
+        t.name,
+        t.game,
+        t.description,
+        t.location_name,
+        t.location_address
+      ]
+        .map((v) => String(v || '').toLowerCase())
+        .join(' ')
+
+      return haystack.includes(q)
+    })
+    .sort((a, b) => {
+      const da = `${a.start_date || ''} ${String(a.start_time || '00:00:00').slice(0, 8)}`
+      const db = `${b.start_date || ''} ${String(b.start_time || '00:00:00').slice(0, 8)}`
+      return new Date(da) - new Date(db)
+    })
+})
+
+function shortDescription(value) {
+  const text = String(value || '').trim()
+  if (!text) return 'Sin descripción'
+  if (text.length <= 70) return text
+  return text.slice(0, 70) + '...'
+}
+
+function formatDateTime(date, time) {
+  if (!date) return '-'
+  const datePart = new Date(date).toLocaleDateString('es-ES')
+  const hhmm = String(time || '00:00:00').slice(0, 5)
+  return `${datePart} · ${hhmm}`
+}
+
+function buildTournamentRoute(tournament) {
+  const base = `/tournaments/${tournament.id}`
+
+  // Para privados, desde admin intentamos abrir con query de código si existe en el objeto.
+  // Nota: por seguridad normalmente no deberías exponer el código completo en listados.
+  if (tournament.visibility === 'private' && tournament.private_access_code) {
+    return `${base}?code=${encodeURIComponent(tournament.private_access_code)}`
+  }
+
+  return base
+}
+
 async function deleteTournament(id) {
-  const ok = window.confirm('Seguro que quieres eliminar este torneo?')
+  const ok = window.confirm('¿Seguro que quieres eliminar este torneo? Esta acción no se puede deshacer.')
   if (!ok) return
 
   try {
     await api.delete(`/admin/tournaments/${id}`)
     tournaments.value = tournaments.value.filter((t) => t.id !== id)
   } catch (e) {
-    window.alert('No se pudo eliminar el torneo.')
+    window.alert(e.response?.data?.error || 'No se pudo eliminar el torneo.')
   }
-}
-
-function formatDate(date) {
-  return new Date(date).toLocaleDateString('es-ES')
 }
 </script>
 
@@ -98,16 +225,66 @@ function formatDate(date) {
   color: #64748b;
 }
 
+.filters-panel {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 0.8rem;
+  margin-bottom: 0.9rem;
+  display: grid;
+  grid-template-columns: 1fr 180px 180px 120px;
+  gap: 0.7rem;
+  align-items: end;
+}
+
+.field {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.field label {
+  font-size: 0.82rem;
+  color: #64748b;
+  font-weight: 700;
+}
+
+.field input,
+.field select {
+  border: 1px solid #dbe1ea;
+  border-radius: 10px;
+  padding: 0.58rem 0.68rem;
+  background: #fff;
+}
+
+.stats-box {
+  border: 1px solid #dbe1ea;
+  border-radius: 10px;
+  background: #f8fafc;
+  text-align: center;
+  padding: 0.5rem;
+  display: grid;
+}
+
+.stats-box strong {
+  font-size: 1.1rem;
+}
+
+.stats-box span {
+  font-size: 0.82rem;
+  color: #64748b;
+}
+
 .table-wrapper {
   background: #fff;
   border: 1px solid #e2e8f0;
   border-radius: 14px;
-  overflow: hidden;
+  overflow: auto;
 }
 
 table {
   width: 100%;
   border-collapse: collapse;
+  min-width: 1120px;
 }
 
 thead th {
@@ -115,11 +292,34 @@ thead th {
   background: #f8fafc;
   padding: 0.75rem;
   border-bottom: 1px solid #e2e8f0;
+  font-size: 0.88rem;
+  white-space: nowrap;
 }
 
 tbody td {
   padding: 0.75rem;
   border-bottom: 1px solid #eef2f7;
+  vertical-align: top;
+}
+
+.name-cell {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.name-cell small {
+  color: #64748b;
+  font-size: 0.82rem;
+}
+
+.location-cell {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.location-cell small {
+  color: #64748b;
+  font-size: 0.8rem;
 }
 
 .badge {
@@ -127,16 +327,51 @@ tbody td {
   padding: 0.25rem 0.55rem;
   font-size: 0.78rem;
   font-weight: 700;
+  display: inline-block;
 }
 
-.badge.sports {
+.badge.type.sports {
   background: #dcfce7;
   color: #166534;
 }
 
-.badge.esports {
+.badge.type.esports {
   background: #dbeafe;
   color: #1d4ed8;
+}
+
+.badge.visibility.public {
+  background: #e2e8f0;
+  color: #334155;
+}
+
+.badge.visibility.private {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.code-last4 {
+  display: block;
+  margin-top: 0.2rem;
+  color: #7f1d1d;
+  font-size: 0.78rem;
+}
+
+.actions-cell {
+  display: flex;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.view-btn {
+  border: 1px solid #bae6fd;
+  background: #eff6ff;
+  color: #1d4ed8;
+  text-decoration: none;
+  padding: 0.35rem 0.58rem;
+  border-radius: 8px;
+  font-weight: 700;
+  font-size: 0.86rem;
 }
 
 .delete-btn {
@@ -147,6 +382,7 @@ tbody td {
   border-radius: 8px;
   font-weight: 700;
   cursor: pointer;
+  font-size: 0.86rem;
 }
 
 .state-box {
@@ -164,8 +400,34 @@ tbody td {
   background: #fff1f2;
 }
 
+.state-error button {
+  margin-top: 0.7rem;
+  border: 1px solid #ef4444;
+  color: #b91c1c;
+  background: #fff;
+  border-radius: 10px;
+  padding: 0.45rem 0.8rem;
+  cursor: pointer;
+  font-weight: 600;
+}
+
 .empty {
   text-align: center;
   padding: 1.2rem;
+  color: #64748b;
+}
+
+@media (max-width: 900px) {
+  .filters-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .stats-box {
+    text-align: left;
+    display: flex;
+    gap: 0.5rem;
+    align-items: baseline;
+    justify-content: flex-start;
+  }
 }
 </style>

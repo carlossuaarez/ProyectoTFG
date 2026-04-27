@@ -47,32 +47,13 @@ function getAuthState() {
 
 const routes = [
   { path: '/', component: HomeView },
-  {
-    path: '/login',
-    component: LoginView,
-    meta: { guestOnly: true }
-  },
-  {
-    path: '/register',
-    component: RegisterView,
-    meta: { guestOnly: true }
-  },
+  { path: '/login', component: LoginView, meta: { guestOnly: true } },
+  { path: '/register', component: RegisterView, meta: { guestOnly: true } },
   { path: '/tournaments', component: TournamentsView },
   { path: '/tournaments/:id', component: TournamentDetailView, props: true },
-  {
-    path: '/create-tournament',
-    component: CreateTournamentView,
-    meta: { requiresAuth: true }
-  },
-  {
-    path: '/admin',
-    component: AdminDashboardView,
-    meta: { requiresAuth: true, requiresAdmin: true }
-  },
-  {
-    path: '/:pathMatch(.*)*',
-    redirect: '/'
-  }
+  { path: '/create-tournament', component: CreateTournamentView, meta: { requiresAuth: true } },
+  { path: '/admin', component: AdminDashboardView, meta: { requiresAuth: true, requiresAdmin: true } },
+  { path: '/:pathMatch(.*)*', redirect: '/' }
 ]
 
 const router = createRouter({

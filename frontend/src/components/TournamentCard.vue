@@ -2,24 +2,33 @@
   <article class="card">
     <div class="card-top">
       <span class="badge" :class="tournament.type">
-        <Gamepad2 v-if="tournament.type === 'esports'" class="badge-icon" />
-        <Dumbbell v-else class="badge-icon" />
         {{ tournament.type === 'esports' ? 'e-Sports' : 'Deporte' }}
       </span>
-      <span class="format">{{ formatTournamentFormat(tournament.format) }}</span>
+      <span class="visibility" :class="tournament.visibility">
+        {{ tournament.visibility === 'private' ? 'Privado' : 'Público' }}
+      </span>
     </div>
 
     <h3>{{ tournament.name }}</h3>
     <p class="game">{{ tournament.game }}</p>
+    <p class="description">{{ tournament.description || 'Sin descripción' }}</p>
 
     <div class="meta-grid">
+      <div>
+        <span class="label">Inicio</span>
+        <strong>{{ formatDateTime(tournament.start_date, tournament.start_time) }}</strong>
+      </div>
       <div>
         <span class="label">Equipos</span>
         <strong>{{ tournament.max_teams }}</strong>
       </div>
       <div>
-        <span class="label">Inicio</span>
-        <strong>{{ formatDate(tournament.start_date) }}</strong>
+        <span class="label">Formato</span>
+        <strong>{{ tournament.format === 'single_elim' ? 'Eliminatoria' : 'Liga' }}</strong>
+      </div>
+      <div>
+        <span class="label">Lugar</span>
+        <strong>{{ tournament.is_online == 1 ? 'Online' : (tournament.location_name || 'Pendiente') }}</strong>
       </div>
     </div>
 
@@ -28,8 +37,6 @@
 </template>
 
 <script setup>
-import { Gamepad2, Dumbbell } from 'lucide-vue-next'
-
 defineProps({
   tournament: {
     type: Object,
@@ -37,12 +44,10 @@ defineProps({
   }
 })
 
-function formatTournamentFormat(format) {
-  return format === 'single_elim' ? 'Eliminatoria' : 'Liga'
-}
-
-function formatDate(date) {
-  return new Date(date).toLocaleDateString('es-ES')
+function formatDateTime(date, time) {
+  const datePart = new Date(date).toLocaleDateString('es-ES')
+  const hhmm = String(time || '00:00:00').slice(0, 5)
+  return `${datePart} · ${hhmm}`
 }
 </script>
 
@@ -55,7 +60,7 @@ function formatDate(date) {
   padding: 1rem;
   display: flex;
   flex-direction: column;
-  min-height: 250px;
+  min-height: 320px;
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
@@ -73,22 +78,11 @@ function formatDate(date) {
 }
 
 .badge,
-.format {
+.visibility {
   border-radius: 999px;
   padding: 0.26rem 0.65rem;
   font-size: 0.78rem;
   font-weight: 700;
-}
-
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-}
-
-.badge-icon {
-  width: 14px;
-  height: 14px;
 }
 
 .badge.sports {
@@ -101,9 +95,14 @@ function formatDate(date) {
   color: #1d4ed8;
 }
 
-.format {
-  background: #f1f5f9;
+.visibility.public {
+  background: #e2e8f0;
   color: #334155;
+}
+
+.visibility.private {
+  background: #fee2e2;
+  color: #991b1b;
 }
 
 h3 {
@@ -114,7 +113,13 @@ h3 {
 
 .game {
   color: var(--muted);
-  margin-bottom: 0.95rem;
+  margin-bottom: 0.45rem;
+}
+
+.description {
+  color: #334155;
+  font-size: 0.92rem;
+  margin-bottom: 0.8rem;
 }
 
 .meta-grid {
