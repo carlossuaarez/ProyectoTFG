@@ -10,7 +10,7 @@ require __DIR__ . '/../src/Controller/AdminController.php';
 require __DIR__ . '/../src/Middleware/AuthMiddleware.php';
 
 $dotenv = Dotenv\Dotenv::createImmutable(__DIR__ . '/..');
-$dotenv->load();
+$dotenv->safeLoad();
 
 // Conectar a la BD
 $db = require __DIR__ . '/../src/config/database.php';
@@ -22,18 +22,30 @@ $app->addBodyParsingMiddleware();
 $app->addRoutingMiddleware();
 $app->addErrorMiddleware(true, true, true);
 
+// Middleware CORS
+$app->add(function ($request, $handler) {
+    if ($request->getMethod() === 'OPTIONS') {
+        $response = (new \Slim\Psr7\Response())->withStatus(204);
+    } else {
+        $response = $handler->handle($request);
+    }
+
+    $origin = $_ENV['CORS_ORIGIN'] ?? '*';
+
+    return $response
+        ->withHeader('Access-Control-Allow-Origin', $origin)
+        ->withHeader('Access-Control-Allow-Headers', 'X-Requested-With, Content-Type, Accept, Origin, Authorization')
+        ->withHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS')
+        ->withHeader('Access-Control-Max-Age', '86400');
+});
+
 $app->get('/', function (Request $req, Response $res) {
-    $res->getBody()->write('API TourneyHub funcionando 🚀');
+    $res->getBody()->write('API TourneyHub funcionando');
     return $res->withHeader('Content-Type', 'text/plain');
 });
 
-// Middleware CORS
-$app->add(function ($request, $handler) {
-    $response = $handler->handle($request);
-    return $response
-        ->withHeader('Access-Control-Allow-Origin', '*')
-        ->withHeader('Access-Control-Allow-Headers', 'X-Requested-With, Content-Type, Accept, Origin, Authorization')
-        ->withHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+$app->options('/{routes:.+}', function (Request $req, Response $res) {
+    return $res->withStatus(204);
 });
 
 // Controladores
