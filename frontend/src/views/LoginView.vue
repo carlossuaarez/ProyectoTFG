@@ -74,7 +74,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { storeToRefs } from 'pinia'
 
@@ -92,6 +92,7 @@ const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || ''
 const authStore = useAuthStore()
 const { pending2fa } = storeToRefs(authStore)
 const router = useRouter()
+const route = useRoute()
 
 function processAuthResult(result) {
   if (result.success && result.requires2fa) {
@@ -101,7 +102,7 @@ function processAuthResult(result) {
   }
 
   if (result.success) {
-    router.push('/tournaments')
+    router.push(resolvePostLoginPath())
     return
   }
 
@@ -196,6 +197,14 @@ async function initGoogleButton() {
     shape: 'pill',
     width: 360,
   })
+}
+
+function resolvePostLoginPath() {
+  const redirect = route.query.redirect
+  if (typeof redirect === 'string' && redirect.startsWith('/')) {
+    return redirect
+  }
+  return '/tournaments'
 }
 
 onMounted(() => {
