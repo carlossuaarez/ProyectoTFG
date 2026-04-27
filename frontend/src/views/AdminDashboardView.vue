@@ -1,8 +1,8 @@
 <template>
   <section class="admin-page">
     <header class="admin-head">
-      <h1>Panel de Administración</h1>
-      <p>Gestiona torneos publicados y mantén la plataforma ordenada.</p>
+      <h1>Panel de Administracion</h1>
+      <p>Gestiona torneos publicados y manten la plataforma ordenada.</p>
     </header>
 
     <div v-if="loading" class="state-box">Cargando torneos...</div>
@@ -20,7 +20,7 @@
             <th>Juego/Deporte</th>
             <th>Tipo</th>
             <th>Inicio</th>
-            <th>Acción</th>
+            <th>Accion</th>
           </tr>
         </thead>
         <tbody>
@@ -32,17 +32,14 @@
             </td>
             <td>{{ formatDate(t.start_date) }}</td>
             <td>
-              <button class="delete-btn" type="button" @click="deleteTournament(t.id)">
-                Eliminar
-              </button>
+              <button class="delete-btn" type="button" @click="deleteTournament(t.id)">Eliminar</button>
             </td>
           </tr>
         </tbody>
       </table>
 
       <div v-else class="empty">
-        <p>No hay torneos en el panel de administración.</p>
-        <router-link to="/create-tournament">Crear un torneo</router-link>
+        <p>No hay torneos en el panel de administracion.</p>
       </div>
     </div>
   </section>
@@ -62,8 +59,8 @@ async function fetchAdminTournaments() {
   try {
     const res = await api.get('/admin/tournaments')
     tournaments.value = res.data
-  } catch {
-    error.value = 'No se pudo cargar el panel de administración.'
+  } catch (e) {
+    error.value = 'No se pudo cargar el panel de administracion.'
   } finally {
     loading.value = false
   }
@@ -72,13 +69,13 @@ async function fetchAdminTournaments() {
 onMounted(fetchAdminTournaments)
 
 async function deleteTournament(id) {
-  const confirmed = window.confirm('¿Seguro que quieres eliminar este torneo? Esta acción no se puede deshacer.')
-  if (!confirmed) return
+  const ok = window.confirm('Seguro que quieres eliminar este torneo?')
+  if (!ok) return
 
   try {
     await api.delete(`/admin/tournaments/${id}`)
     tournaments.value = tournaments.value.filter((t) => t.id !== id)
-  } catch {
+  } catch (e) {
     window.alert('No se pudo eliminar el torneo.')
   }
 }
@@ -94,19 +91,17 @@ function formatDate(date) {
 }
 
 .admin-head h1 {
-  font-size: clamp(1.4rem, 2.4vw, 1.95rem);
   margin-bottom: 0.2rem;
 }
 
 .admin-head p {
-  color: var(--muted);
+  color: #64748b;
 }
 
 .table-wrapper {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-sm);
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
   overflow: hidden;
 }
 
@@ -119,18 +114,12 @@ thead th {
   text-align: left;
   background: #f8fafc;
   padding: 0.75rem;
-  font-size: 0.88rem;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid #e2e8f0;
 }
 
 tbody td {
   padding: 0.75rem;
   border-bottom: 1px solid #eef2f7;
-  font-size: 0.92rem;
-}
-
-tbody tr:hover {
-  background: #f8fafc;
 }
 
 .badge {
@@ -162,11 +151,11 @@ tbody tr:hover {
 
 .state-box {
   border: 1px dashed #cbd5e1;
-  border-radius: var(--radius);
+  border-radius: 14px;
   padding: 1rem;
   text-align: center;
-  color: var(--muted);
-  background: var(--surface);
+  color: #64748b;
+  background: #fff;
 }
 
 .state-error {
@@ -175,34 +164,8 @@ tbody tr:hover {
   background: #fff1f2;
 }
 
-.state-error button {
-  margin-top: 0.55rem;
-  border: 1px solid #ef4444;
-  background: #fff;
-  color: #b91c1c;
-  border-radius: 10px;
-  padding: 0.42rem 0.72rem;
-  cursor: pointer;
-}
-
 .empty {
   text-align: center;
   padding: 1.2rem;
-}
-
-.empty a {
-  color: #0284c7;
-  text-decoration: none;
-  font-weight: 700;
-}
-
-@media (max-width: 768px) {
-  .table-wrapper {
-    overflow-x: auto;
-  }
-
-  table {
-    min-width: 720px;
-  }
 }
 </style>
