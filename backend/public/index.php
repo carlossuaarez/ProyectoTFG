@@ -4,6 +4,7 @@ use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 
 require __DIR__ . '/../vendor/autoload.php';
+require __DIR__ . '/../src/Service/MailService.php';
 require __DIR__ . '/../src/Controller/AuthController.php';
 require __DIR__ . '/../src/Controller/TournamentController.php';
 require __DIR__ . '/../src/Controller/AdminController.php';
@@ -22,9 +23,9 @@ $app->addBodyParsingMiddleware();
 $app->addRoutingMiddleware();
 $app->addErrorMiddleware(true, true, true);
 
-$app->get('/', function (Request $req, Response $res) {
-    $res->getBody()->write('API TourneyHub funcionando 🚀');
-    return $res->withHeader('Content-Type', 'text/plain');
+// Preflight CORS
+$app->options('/{routes:.+}', function (Request $req, Response $res) {
+    return $res;
 });
 
 // Middleware CORS
@@ -36,15 +37,25 @@ $app->add(function ($request, $handler) {
         ->withHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
 });
 
+$app->get('/', function (Request $req, Response $res) {
+    $res->getBody()->write('API TourneyHub funcionando');
+    return $res->withHeader('Content-Type', 'text/plain');
+});
+
 // Controladores
-$authController = new AuthController($db);
+$mailService = new MailService();
+$authController = new AuthController($db, $mailService);
 $tournamentController = new TournamentController($db);
 $adminController = new AdminController($db);
 $authMiddleware = new AuthMiddleware();
 
-// Rutas públicas
+// Rutas públicas auth
 $app->post('/api/register', [$authController, 'register']);
 $app->post('/api/login', [$authController, 'login']);
+$app->post('/api/auth/google', [$authController, 'googleLogin']);
+$app->post('/api/2fa/verify', [$authController, 'verify2fa']);
+
+// Rutas públicas de torneos
 $app->get('/api/tournaments', [$tournamentController, 'getAll']);
 $app->get('/api/tournaments/{id}', [$tournamentController, 'getById']);
 
