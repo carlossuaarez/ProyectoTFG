@@ -9,7 +9,11 @@
   <section v-else-if="tournament" class="detail-page">
     <article class="main-card">
       <div class="head">
-        <span class="badge" :class="tournament.type">{{ formatType(tournament.type) }}</span>
+        <span class="badge" :class="tournament.type">
+          <Gamepad2 v-if="isEsports(tournament.type)" class="badge-icon" />
+          <Dumbbell v-else class="badge-icon" />
+          {{ formatType(tournament.type) }}
+        </span>
         <span class="format-chip">{{ formatTournamentFormat(tournament.format) }}</span>
       </div>
 
@@ -69,6 +73,7 @@ import { useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { storeToRefs } from 'pinia'
 import api from '../services/api'
+import { Gamepad2, Dumbbell } from 'lucide-vue-next'
 
 const route = useRoute()
 const authStore = useAuthStore()
@@ -128,8 +133,12 @@ async function joinTournament() {
   }
 }
 
+function isEsports(type) {
+  return type === 'esports'
+}
+
 function formatType(type) {
-  return type === 'esports' ? '🎮 e-Sports' : '⚽ Deporte'
+  return isEsports(type) ? 'e-Sports' : 'Deporte'
 }
 
 function formatTournamentFormat(format) {
@@ -170,6 +179,17 @@ function formatDate(date) {
   padding: 0.25rem 0.65rem;
   font-size: 0.78rem;
   font-weight: 700;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.badge-icon {
+  width: 14px;
+  height: 14px;
 }
 
 .badge.sports {

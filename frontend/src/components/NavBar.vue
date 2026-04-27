@@ -2,7 +2,7 @@
   <header class="navbar">
     <div class="nav-inner">
       <router-link to="/" class="logo">
-        <span class="logo-icon">🏆</span>
+        <Trophy class="logo-icon" />
         <span>TourneyHub</span>
       </router-link>
 
@@ -13,16 +13,23 @@
         aria-label="Abrir menú"
         @click="isMenuOpen = !isMenuOpen"
       >
-        ☰
+        <Menu v-if="!isMenuOpen" class="icon-20" />
+        <X v-else class="icon-20" />
       </button>
 
       <nav class="nav-links" :class="{ open: isMenuOpen }">
         <router-link to="/tournaments">Torneos</router-link>
 
         <template v-if="token">
-          <router-link to="/create-tournament" class="pill pill-primary">Crear torneo</router-link>
+          <router-link to="/create-tournament" class="pill pill-primary action-link">
+            <Plus class="pill-icon" />
+            Crear torneo
+          </router-link>
           <router-link v-if="isAdmin" to="/admin">Admin</router-link>
-          <button class="pill pill-ghost" type="button" @click="handleLogout">Cerrar sesión</button>
+          <button class="pill pill-ghost action-link" type="button" @click="handleLogout">
+            <LogOut class="pill-icon" />
+            Cerrar sesión
+          </button>
         </template>
 
         <template v-else>
@@ -39,6 +46,7 @@ import { ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { storeToRefs } from 'pinia'
+import { Trophy, Menu, X, Plus, LogOut } from 'lucide-vue-next'
 
 const authStore = useAuthStore()
 const { token, isAdmin } = storeToRefs(authStore)
@@ -92,7 +100,14 @@ function handleLogout() {
 }
 
 .logo-icon {
+  width: 20px;
+  height: 20px;
   filter: drop-shadow(0 0 8px rgba(245, 158, 11, 0.45));
+}
+
+.icon-20 {
+  width: 20px;
+  height: 20px;
 }
 
 .menu-toggle {
@@ -104,6 +119,8 @@ function handleLogout() {
   width: 40px;
   height: 40px;
   cursor: pointer;
+  align-items: center;
+  justify-content: center;
 }
 
 .nav-links {
@@ -138,6 +155,17 @@ function handleLogout() {
   cursor: pointer;
 }
 
+.action-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.pill-icon {
+  width: 16px;
+  height: 16px;
+}
+
 .pill-primary {
   background: linear-gradient(135deg, #0ea5e9, #06b6d4);
   color: #ffffff !important;
@@ -161,8 +189,6 @@ function handleLogout() {
 @media (max-width: 900px) {
   .menu-toggle {
     display: inline-flex;
-    align-items: center;
-    justify-content: center;
   }
 
   .nav-links {
@@ -183,8 +209,10 @@ function handleLogout() {
   }
 
   .nav-links a,
-  .pill-ghost {
+  .pill-ghost,
+  .pill-primary {
     text-align: center;
+    justify-content: center;
   }
 }
 </style>

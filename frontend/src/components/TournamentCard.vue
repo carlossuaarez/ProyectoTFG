@@ -1,7 +1,11 @@
 <template>
   <article class="card">
     <div class="card-top">
-      <span class="badge" :class="tournament.type">{{ formatType(tournament.type) }}</span>
+      <span class="badge" :class="tournament.type">
+        <Gamepad2 v-if="tournament.type === 'esports'" class="badge-icon" />
+        <Dumbbell v-else class="badge-icon" />
+        {{ tournament.type === 'esports' ? 'e-Sports' : 'Deporte' }}
+      </span>
       <span class="format">{{ formatTournamentFormat(tournament.format) }}</span>
     </div>
 
@@ -24,16 +28,14 @@
 </template>
 
 <script setup>
+import { Gamepad2, Dumbbell } from 'lucide-vue-next'
+
 defineProps({
   tournament: {
     type: Object,
     required: true
   }
 })
-
-function formatType(type) {
-  return type === 'esports' ? '🎮 e-Sports' : '⚽ Deporte'
-}
 
 function formatTournamentFormat(format) {
   return format === 'single_elim' ? 'Eliminatoria' : 'Liga'
@@ -76,6 +78,17 @@ function formatDate(date) {
   padding: 0.26rem 0.65rem;
   font-size: 0.78rem;
   font-weight: 700;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.badge-icon {
+  width: 14px;
+  height: 14px;
 }
 
 .badge.sports {

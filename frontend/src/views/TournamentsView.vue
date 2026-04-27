@@ -7,7 +7,8 @@
       </div>
 
       <router-link v-if="token" to="/create-tournament" class="create-btn">
-        + Crear torneo
+        <Plus class="create-icon" />
+        Crear torneo
       </router-link>
     </header>
 
@@ -56,6 +57,7 @@ import { useAuthStore } from '../stores/auth'
 import { storeToRefs } from 'pinia'
 import api from '../services/api'
 import TournamentCard from '../components/TournamentCard.vue'
+import { Plus } from 'lucide-vue-next'
 
 const tournaments = ref([])
 const filterType = ref('all')
@@ -124,6 +126,14 @@ const filteredTournaments = computed(() => {
   font-weight: 700;
   background: linear-gradient(135deg, #0ea5e9, #06b6d4);
   color: #fff;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.create-icon {
+  width: 16px;
+  height: 16px;
 }
 
 .filters-panel {

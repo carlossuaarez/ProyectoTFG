@@ -2,25 +2,68 @@
   <section class="auth-wrapper">
     <article class="auth-card">
       <h1>Iniciar sesión</h1>
-      <p class="subtitle">Accede para crear torneos o administrar competiciones.</p>
 
-      <form @submit.prevent="handleLogin">
-        <div class="input-group">
-          <label for="email">Email</label>
-          <input id="email" v-model="email" type="email" placeholder="tu@email.com" required />
+      <template v-if="step === 'credentials'">
+        <p class="subtitle">Accede para crear torneos o administrar competiciones.</p>
+
+        <form @submit.prevent="handleLogin">
+          <div class="input-group">
+            <label for="email">Email</label>
+            <input id="email" v-model="email" type="email" placeholder="tu@email.com" required />
+          </div>
+
+          <div class="input-group">
+            <label for="password">Contraseña</label>
+            <input id="password" v-model="password" type="password" placeholder="••••••••" required />
+          </div>
+
+          <p v-if="errorMessage" class="msg error">{{ errorMessage }}</p>
+
+          <button type="submit" class="submit-btn" :disabled="loading">
+            {{ loading ? 'Entrando...' : 'Entrar' }}
+          </button>
+        </form>
+
+        <div class="divider">o continúa con</div>
+
+        <div class="google-block">
+          <div ref="googleButtonRef" class="google-button-slot"></div>
+          <p v-if="googleError" class="msg error">{{ googleError }}</p>
         </div>
+      </template>
 
-        <div class="input-group">
-          <label for="password">Contraseña</label>
-          <input id="password" v-model="password" type="password" placeholder="••••••••" required />
-        </div>
+      <template v-else>
+        <p class="subtitle">
+          Te enviamos un código de 6 dígitos a
+          <strong>{{ pending2fa?.emailHint || 'tu correo' }}</strong>.
+        </p>
 
-        <p v-if="errorMessage" class="msg error">{{ errorMessage }}</p>
+        <form @submit.prevent="handleVerify2fa">
+          <div class="input-group">
+            <label for="otp">Código de verificación</label>
+            <input
+              id="otp"
+              v-model="otpCode"
+              type="text"
+              inputmode="numeric"
+              maxlength="6"
+              autocomplete="one-time-code"
+              placeholder="123456"
+              required
+            />
+          </div>
 
-        <button type="submit" class="submit-btn" :disabled="loading">
-          {{ loading ? 'Entrando...' : 'Entrar' }}
+          <p v-if="errorMessage" class="msg error">{{ errorMessage }}</p>
+
+          <button type="submit" class="submit-btn" :disabled="loading">
+            {{ loading ? 'Verificando...' : 'Verificar y entrar' }}
+          </button>
+        </form>
+
+        <button type="button" class="back-btn" @click="goBackToCredentials">
+          Volver al login
         </button>
-      </form>
+      </template>
 
       <p class="switch-page">
         ¿No tienes cuenta? <router-link to="/register">Regístrate</router-link>
@@ -30,32 +73,134 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { storeToRefs } from 'pinia'
 
 const email = ref('')
 const password = ref('')
+const otpCode = ref('')
 const loading = ref(false)
 const errorMessage = ref('')
+const googleError = ref('')
+const step = ref('credentials')
+
+const googleButtonRef = ref(null)
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || ''
 
 const authStore = useAuthStore()
+const { pending2fa } = storeToRefs(authStore)
 const router = useRouter()
+
+function processAuthResult(result) {
+  if (result.success && result.requires2fa) {
+    step.value = 'otp'
+    errorMessage.value = ''
+    return
+  }
+
+  if (result.success) {
+    router.push('/tournaments')
+    return
+  }
+
+  errorMessage.value = result.message || 'No se pudo completar la autenticación.'
+}
 
 async function handleLogin() {
   loading.value = true
   errorMessage.value = ''
 
-  const success = await authStore.login(email.value, password.value)
-
-  if (success) {
-    router.push('/tournaments')
-  } else {
-    errorMessage.value = 'Credenciales incorrectas. Revisa email y contraseña.'
-  }
+  const result = await authStore.login(email.value, password.value)
+  processAuthResult(result)
 
   loading.value = false
 }
+
+async function handleVerify2fa() {
+  loading.value = true
+  errorMessage.value = ''
+
+  const result = await authStore.verify2fa(otpCode.value)
+  processAuthResult(result)
+
+  loading.value = false
+}
+
+function goBackToCredentials() {
+  step.value = 'credentials'
+  otpCode.value = ''
+  errorMessage.value = ''
+  authStore.clearPending2fa()
+}
+
+function waitForGoogleSdk() {
+  return new Promise((resolve) => {
+    let tries = 0
+    const interval = setInterval(() => {
+      if (window.google?.accounts?.id) {
+        clearInterval(interval)
+        resolve(true)
+        return
+      }
+
+      tries += 1
+      if (tries >= 30) {
+        clearInterval(interval)
+        resolve(false)
+      }
+    }, 200)
+  })
+}
+
+async function handleGoogleCredential(response) {
+  if (!response?.credential) {
+    errorMessage.value = 'No se recibió token de Google.'
+    return
+  }
+
+  loading.value = true
+  errorMessage.value = ''
+
+  const result = await authStore.loginWithGoogle(response.credential)
+  processAuthResult(result)
+
+  loading.value = false
+}
+
+async function initGoogleButton() {
+  if (!GOOGLE_CLIENT_ID) {
+    googleError.value = 'Login con Google no configurado. Falta VITE_GOOGLE_CLIENT_ID.'
+    return
+  }
+
+  if (!googleButtonRef.value) return
+
+  const sdkLoaded = await waitForGoogleSdk()
+  if (!sdkLoaded) {
+    googleError.value = 'No se pudo cargar Google Sign-In.'
+    return
+  }
+
+  window.google.accounts.id.initialize({
+    client_id: GOOGLE_CLIENT_ID,
+    callback: handleGoogleCredential,
+  })
+
+  googleButtonRef.value.innerHTML = ''
+  window.google.accounts.id.renderButton(googleButtonRef.value, {
+    theme: 'outline',
+    size: 'large',
+    text: 'signin_with',
+    shape: 'pill',
+    width: 360,
+  })
+}
+
+onMounted(() => {
+  initGoogleButton()
+})
 </script>
 
 <style scoped>
@@ -121,6 +266,29 @@ input:focus {
 .submit-btn:disabled {
   opacity: 0.72;
   cursor: not-allowed;
+}
+
+.divider {
+  margin: 0.85rem 0 0.7rem;
+  text-align: center;
+  color: #64748b;
+  font-size: 0.9rem;
+}
+
+.google-button-slot {
+  display: flex;
+  justify-content: center;
+}
+
+.back-btn {
+  width: 100%;
+  margin-top: 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.62rem 0.9rem;
+  font-weight: 600;
+  background: #f8fafc;
+  cursor: pointer;
 }
 
 .switch-page {
