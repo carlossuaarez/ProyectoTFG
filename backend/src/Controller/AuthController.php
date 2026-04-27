@@ -259,8 +259,18 @@ class AuthController {
                 $otpCode
             );
         } catch (Throwable $e) {
+            if ($this->shouldBypassTwoFactorOnMailFailure()) {
+                error_log('2FA mail delivery failed, bypass enabled for development: ' . $e->getMessage());
+ 
+                $cleanup = $this->db->prepare("DELETE FROM login_challenges WHERE public_id = ?");
+                $cleanup->execute([$challengeId]);
+ 
+                return $this->issueJwtResponse($user, $res);
+            }
+ 
             $cleanup = $this->db->prepare("DELETE FROM login_challenges WHERE public_id = ?");
             $cleanup->execute([$challengeId]);
+ 
             return $this->json($res, ['error' => $e->getMessage()], 500);
         }
 
@@ -428,6 +438,20 @@ class AuthController {
     private function isStrongPassword(string $password): bool {
         // mínimo 8, al menos una minúscula, una mayúscula y un número
         return (bool)preg_match('/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/', $password);
+    }
+
+    private function shouldBypassTwoFactorOnMailFailure(): bool {
+        $bypassEnabled = filter_var(
+            $_ENV['AUTH_DEV_BYPASS_2FA_ON_MAIL_FAILURE'] ?? 'false', 
+            FILTER_VALIDATE_BOOLEAN
+        );
+
+        if (!$bypassEnabled) {
+            return false;
+        }
+
+        $appEnv = strtolower(trim((string)($_ENV['APP_ENV'] ?? 'production')));
+        return in_array($appEnv, ['dev', 'development', 'local', 'test'], true);
     }
 
 } 
