@@ -1,14 +1,44 @@
 <template>
-  <div class="form-container">
-    <h2>Registro</h2>
-    <form @submit.prevent="handleRegister">
-      <input v-model="username" placeholder="Nombre de usuario" required />
-      <input v-model="email" type="email" placeholder="Email" required />
-      <input v-model="password" type="password" placeholder="Contraseña" required />
-      <button type="submit">Registrarse</button>
-    </form>
-    <p>¿Ya tienes cuenta? <router-link to="/login">Inicia sesión</router-link></p>
-  </div>
+  <section class="auth-wrapper">
+    <article class="auth-card">
+      <h1>Crear cuenta</h1>
+      <p class="subtitle">Regístrate para gestionar torneos y participar con tu equipo.</p>
+
+      <form @submit.prevent="handleRegister">
+        <div class="input-group">
+          <label for="username">Nombre de usuario</label>
+          <input id="username" v-model="username" placeholder="Ej: admin_malaga" required />
+        </div>
+
+        <div class="input-group">
+          <label for="email">Email</label>
+          <input id="email" v-model="email" type="email" placeholder="tu@email.com" required />
+        </div>
+
+        <div class="input-group">
+          <label for="password">Contraseña</label>
+          <input
+            id="password"
+            v-model="password"
+            type="password"
+            minlength="6"
+            placeholder="Mínimo 6 caracteres"
+            required
+          />
+        </div>
+
+        <p v-if="errorMessage" class="msg error">{{ errorMessage }}</p>
+
+        <button type="submit" class="submit-btn" :disabled="loading">
+          {{ loading ? 'Registrando...' : 'Registrarse' }}
+        </button>
+      </form>
+
+      <p class="switch-page">
+        ¿Ya tienes cuenta? <router-link to="/login">Inicia sesión</router-link>
+      </p>
+    </article>
+  </section>
 </template>
 
 <script setup>
@@ -18,78 +48,111 @@ import { useAuthStore } from '../stores/auth'
 const username = ref('')
 const email = ref('')
 const password = ref('')
+
+const loading = ref(false)
+const errorMessage = ref('')
+
 const authStore = useAuthStore()
 
-function handleRegister() {
-  authStore.register(username.value, email.value, password.value)
+async function handleRegister() {
+  loading.value = true
+  errorMessage.value = ''
+
+  if (password.value.length < 6) {
+    errorMessage.value = 'La contraseña debe tener al menos 6 caracteres.'
+    loading.value = false
+    return
+  }
+
+  try {
+    await authStore.register(username.value, email.value, password.value)
+  } catch {
+    errorMessage.value = 'No se pudo completar el registro.'
+  } finally {
+    loading.value = false
+  }
 }
 </script>
 
 <style scoped>
 .auth-wrapper {
+  min-height: 65vh;
   display: flex;
   justify-content: center;
   align-items: center;
-  min-height: 60vh;
 }
+
 .auth-card {
-  background: white;
-  padding: 2.5rem;
-  border-radius: 16px;
-  box-shadow: 0 8px 30px rgba(0,0,0,0.12);
-  width: 100%;
-  max-width: 420px;
+  width: min(430px, 100%);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  padding: 1.1rem;
 }
-.auth-card h2 {
-  text-align: center;
-  margin-bottom: 1.5rem;
-  color: #1a1a2e;
+
+h1 {
+  margin-bottom: 0.2rem;
+  font-size: 1.65rem;
 }
+
+.subtitle {
+  color: var(--muted);
+  margin-bottom: 0.85rem;
+}
+
 .input-group {
-  margin-bottom: 1.2rem;
+  display: grid;
+  gap: 0.35rem;
+  margin-bottom: 0.75rem;
 }
-.input-group label {
-  display: block;
-  margin-bottom: 0.3rem;
-  font-weight: 600;
-  color: #333;
+
+label {
+  font-size: 0.9rem;
+  font-weight: 700;
 }
-.input-group input {
-  width: 100%;
-  padding: 0.7rem 1rem;
-  border: 2px solid #e0e0e0;
-  border-radius: 8px;
-  font-size: 1rem;
-  transition: border-color 0.2s;
+
+input {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.62rem 0.72rem;
 }
-.input-group input:focus {
-  outline: none;
-  border-color: #f0c040;
+
+input:focus {
+  outline: 2px solid rgba(6, 182, 212, 0.25);
+  border-color: #06b6d4;
 }
+
 .submit-btn {
   width: 100%;
-  padding: 0.8rem;
-  background: linear-gradient(135deg, #302b63, #24243e);
-  color: white;
   border: none;
-  border-radius: 8px;
-  font-size: 1.1rem;
-  font-weight: 600;
+  border-radius: 10px;
+  padding: 0.72rem 0.9rem;
+  font-weight: 700;
   cursor: pointer;
-  margin-top: 0.5rem;
-  transition: opacity 0.2s;
+  color: #fff;
+  background: linear-gradient(135deg, #0ea5e9, #06b6d4);
 }
-.submit-btn:hover {
-  opacity: 0.9;
+
+.submit-btn:disabled {
+  opacity: 0.72;
+  cursor: not-allowed;
 }
+
 .switch-page {
+  margin-top: 0.85rem;
   text-align: center;
-  margin-top: 1.2rem;
-  color: #666;
+  color: #475569;
 }
+
 .switch-page a {
-  color: #e94560;
+  color: #0284c7;
   text-decoration: none;
-  font-weight: 600;
+  font-weight: 700;
+}
+
+.msg.error {
+  color: #b91c1c;
+  margin: 0.2rem 0 0.7rem;
 }
 </style>

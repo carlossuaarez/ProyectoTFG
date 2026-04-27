@@ -1,88 +1,138 @@
 <template>
-  <div class="tournament-card">
-    <div class="card-header">
-      <span class="type-badge" :class="tournament.type">{{ tournament.type === 'esports' ? '🎮 e-Sports' : '⚽ Deporte' }}</span>
+  <article class="card">
+    <div class="card-top">
+      <span class="badge" :class="tournament.type">{{ formatType(tournament.type) }}</span>
+      <span class="format">{{ formatTournamentFormat(tournament.format) }}</span>
     </div>
+
     <h3>{{ tournament.name }}</h3>
     <p class="game">{{ tournament.game }}</p>
-    <div class="details">
-      <span>{{ tournament.format === 'single_elim' ? 'Eliminatoria' : 'Liga' }}</span>
-      <span>Máx {{ tournament.max_teams }} equipos</span>
+
+    <div class="meta-grid">
+      <div>
+        <span class="label">Equipos</span>
+        <strong>{{ tournament.max_teams }}</strong>
+      </div>
+      <div>
+        <span class="label">Inicio</span>
+        <strong>{{ formatDate(tournament.start_date) }}</strong>
+      </div>
     </div>
-    <p class="date">Inicio: {{ new Date(tournament.start_date).toLocaleDateString() }}</p>
-    <router-link :to="'/tournaments/' + tournament.id" class="view-btn">Ver torneo</router-link>
-  </div>
+
+    <router-link class="cta" :to="`/tournaments/${tournament.id}`">Ver torneo</router-link>
+  </article>
 </template>
 
 <script setup>
-defineProps(['tournament'])
+defineProps({
+  tournament: {
+    type: Object,
+    required: true
+  }
+})
+
+function formatType(type) {
+  return type === 'esports' ? '🎮 e-Sports' : '⚽ Deporte'
+}
+
+function formatTournamentFormat(format) {
+  return format === 'single_elim' ? 'Eliminatoria' : 'Liga'
+}
+
+function formatDate(date) {
+  return new Date(date).toLocaleDateString('es-ES')
+}
 </script>
 
 <style scoped>
-.tournament-card {
-  background: white;
-  border-radius: 12px;
-  padding: 1.5rem;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-  transition: transform 0.2s, box-shadow 0.2s;
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  padding: 1rem;
   display: flex;
   flex-direction: column;
+  min-height: 250px;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
-.tournament-card:hover {
-  transform: translateY(-5px);
-  box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+
+.card:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-md);
 }
-.card-header {
-  margin-bottom: 0.8rem;
-}
-.type-badge {
-  display: inline-block;
-  padding: 0.3rem 0.8rem;
-  border-radius: 20px;
-  font-size: 0.8rem;
-  font-weight: 600;
-}
-.type-badge.sports {
-  background: #e8f5e9;
-  color: #2e7d32;
-}
-.type-badge.esports {
-  background: #e3f2fd;
-  color: #1565c0;
-}
-.tournament-card h3 {
-  font-size: 1.3rem;
-  margin-bottom: 0.5rem;
-  color: #1a1a2e;
-}
-.game {
-  color: #666;
-  margin-bottom: 1rem;
-}
-.details {
+
+.card-top {
   display: flex;
   justify-content: space-between;
-  color: #777;
-  font-size: 0.9rem;
+  gap: 0.6rem;
+  align-items: center;
   margin-bottom: 0.8rem;
 }
-.date {
-  color: #444;
-  font-size: 0.9rem;
+
+.badge,
+.format {
+  border-radius: 999px;
+  padding: 0.26rem 0.65rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.badge.sports {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.badge.esports {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.format {
+  background: #f1f5f9;
+  color: #334155;
+}
+
+h3 {
+  font-size: 1.12rem;
+  margin-bottom: 0.25rem;
+  line-height: 1.25;
+}
+
+.game {
+  color: var(--muted);
+  margin-bottom: 0.95rem;
+}
+
+.meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
   margin-bottom: 1rem;
 }
-.view-btn {
-  margin-top: auto;
-  text-align: center;
-  padding: 0.6rem;
-  background: #f0c040;
-  color: #1a1a2e;
-  border-radius: 8px;
-  text-decoration: none;
-  font-weight: 600;
-  transition: background 0.2s;
+
+.meta-grid > div {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-soft);
+  padding: 0.55rem 0.65rem;
 }
-.view-btn:hover {
-  background: #e0b030;
+
+.label {
+  display: block;
+  color: var(--muted);
+  font-size: 0.78rem;
+  margin-bottom: 0.15rem;
+}
+
+.cta {
+  margin-top: auto;
+  text-decoration: none;
+  text-align: center;
+  border-radius: 10px;
+  padding: 0.65rem;
+  font-weight: 700;
+  color: #ffffff;
+  background: linear-gradient(135deg, #0ea5e9, #06b6d4);
 }
 </style>

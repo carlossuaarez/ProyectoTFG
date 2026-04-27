@@ -1,114 +1,190 @@
 <template>
   <header class="navbar">
-    <div class="navbar-brand">
-      <router-link to="/" class="logo">🏆 TourneyHub</router-link>
+    <div class="nav-inner">
+      <router-link to="/" class="logo">
+        <span class="logo-icon">🏆</span>
+        <span>TourneyHub</span>
+      </router-link>
+
+      <button
+        class="menu-toggle"
+        type="button"
+        :aria-expanded="isMenuOpen ? 'true' : 'false'"
+        aria-label="Abrir menú"
+        @click="isMenuOpen = !isMenuOpen"
+      >
+        ☰
+      </button>
+
+      <nav class="nav-links" :class="{ open: isMenuOpen }">
+        <router-link to="/tournaments">Torneos</router-link>
+
+        <template v-if="token">
+          <router-link to="/create-tournament" class="pill pill-primary">Crear torneo</router-link>
+          <router-link v-if="isAdmin" to="/admin">Admin</router-link>
+          <button class="pill pill-ghost" type="button" @click="handleLogout">Cerrar sesión</button>
+        </template>
+
+        <template v-else>
+          <router-link to="/login">Iniciar sesión</router-link>
+          <router-link to="/register" class="pill pill-accent">Registro</router-link>
+        </template>
+      </nav>
     </div>
-    <nav class="navbar-links">
-      <router-link to="/tournaments">Torneos</router-link>
-      <template v-if="token">
-        <router-link to="/create-tournament" class="btn-link">Crear torneo</router-link>
-        <router-link v-if="isAdmin" to="/admin">Admin</router-link>
-        <button @click="logout" class="logout-btn">Cerrar sesión</button>
-      </template>
-      <template v-else>
-        <router-link to="/login">Iniciar sesión</router-link>
-        <router-link to="/register" class="btn-link register-btn">Registro</router-link>
-      </template>
-    </nav>
   </header>
 </template>
 
 <script setup>
+import { ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { storeToRefs } from 'pinia'
 
 const authStore = useAuthStore()
 const { token, isAdmin } = storeToRefs(authStore)
 const { logout } = authStore
+
+const route = useRoute()
+const isMenuOpen = ref(false)
+
+watch(
+  () => route.fullPath,
+  () => {
+    isMenuOpen.value = false
+  }
+)
+
+function handleLogout() {
+  isMenuOpen.value = false
+  logout()
+}
 </script>
 
 <style scoped>
 .navbar {
-  background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
-  color: white;
-  padding: 0 2rem;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  height: 70px;
-  box-shadow: 0 2px 10px rgba(0,0,0,0.3);
   position: sticky;
   top: 0;
   z-index: 100;
+  backdrop-filter: blur(10px);
+  background: rgba(15, 23, 42, 0.9);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
 }
+
+.nav-inner {
+  width: min(1200px, 100%);
+  margin: 0 auto;
+  min-height: 72px;
+  padding: 0 1rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
 .logo {
-  font-size: 1.5rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  text-decoration: none;
+  color: #f8fafc;
+  font-size: 1.2rem;
   font-weight: 700;
-  color: #f0c040;
-  text-decoration: none;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
+  margin-right: auto;
 }
-.navbar-links {
-  display: flex;
-  gap: 1.5rem;
-  align-items: center;
+
+.logo-icon {
+  filter: drop-shadow(0 0 8px rgba(245, 158, 11, 0.45));
 }
-.navbar-links a {
-  color: white;
-  text-decoration: none;
-  font-weight: 500;
-  transition: color 0.2s;
-  padding: 0.5rem 0;
-}
-.navbar-links a:hover {
-  color: #f0c040;
-}
-.btn-link {
-  background: #f0c040;
-  color: #1a1a2e !important;
-  padding: 0.5rem 1.2rem !important;
-  border-radius: 20px;
-  font-weight: 600;
-  transition: background 0.2s;
-}
-.btn-link:hover {
-  background: #e0b030 !important;
-}
-.register-btn {
-  background: #e94560;
-  color: white !important;
-  border-radius: 20px;
-}
-.register-btn:hover {
-  background: #c23150 !important;
-}
-.logout-btn {
+
+.menu-toggle {
+  display: none;
+  border: 1px solid rgba(255, 255, 255, 0.22);
   background: transparent;
-  color: white;
-  border: 1px solid #555;
-  padding: 0.4rem 1rem;
-  border-radius: 20px;
+  color: #e2e8f0;
+  border-radius: 10px;
+  width: 40px;
+  height: 40px;
   cursor: pointer;
+}
+
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+}
+
+.nav-links a {
+  color: #e2e8f0;
+  text-decoration: none;
   font-weight: 500;
-  transition: all 0.2s;
+  padding: 0.45rem 0.25rem;
+  border-bottom: 2px solid transparent;
 }
-.logout-btn:hover {
-  border-color: #e94560;
-  color: #e94560;
+
+.nav-links a:hover {
+  color: #ffffff;
 }
-@media (max-width: 600px) {
-  .navbar {
-    flex-direction: column;
-    height: auto;
-    padding: 1rem;
-  }
-  .navbar-links {
-    flex-wrap: wrap;
+
+.nav-links a.router-link-exact-active {
+  color: #f8fafc;
+  border-bottom-color: var(--accent);
+}
+
+.pill {
+  border: none;
+  border-radius: 999px;
+  padding: 0.5rem 1rem !important;
+  font-weight: 700 !important;
+  border-bottom: none !important;
+  cursor: pointer;
+}
+
+.pill-primary {
+  background: linear-gradient(135deg, #0ea5e9, #06b6d4);
+  color: #ffffff !important;
+}
+
+.pill-accent {
+  background: linear-gradient(135deg, #f59e0b, #f97316);
+  color: #ffffff !important;
+}
+
+.pill-ghost {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f8fafc;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.pill-ghost:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+@media (max-width: 900px) {
+  .menu-toggle {
+    display: inline-flex;
+    align-items: center;
     justify-content: center;
-    gap: 0.8rem;
-    margin-top: 0.5rem;
+  }
+
+  .nav-links {
+    display: none;
+    position: absolute;
+    top: 72px;
+    left: 0;
+    width: 100%;
+    padding: 0.9rem 1rem 1rem;
+    flex-direction: column;
+    align-items: stretch;
+    background: #0f172a;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  }
+
+  .nav-links.open {
+    display: flex;
+  }
+
+  .nav-links a,
+  .pill-ghost {
+    text-align: center;
   }
 }
 </style>
