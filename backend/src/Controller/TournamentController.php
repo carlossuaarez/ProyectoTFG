@@ -79,43 +79,31 @@ class TournamentController {
             return $res->withStatus(400)->withHeader('Content-Type', 'application/json');
         }
 
-        try {
-            $this->db->beginTransaction();
-
-            // Bloquea el torneo durante la comprobación para evitar sobreinscripciones concurrentes.
-            $stmtTournament = $this->db->prepare("SELECT * FROM tournaments WHERE id = ? FOR UPDATE");
-            $stmtTournament->execute([$tournamentId]);
-            $tournament = $stmtTournament->fetch();
-            if (!$tournament) {
-                $this->db->rollBack();
-                $res->getBody()->write(json_encode(['error' => 'Torneo no encontrado']));
-                return $res->withStatus(404)->withHeader('Content-Type', 'application/json');
-            }
-
-            $stmtCount = $this->db->prepare("SELECT COUNT(*) FROM teams WHERE tournament_id = ?");
-            $stmtCount->execute([$tournamentId]);
-            $currentTeams = (int) $stmtCount->fetchColumn();
-
-            if ($currentTeams >= (int) $tournament['max_teams']) {
-                $this->db->rollBack();
-                $res->getBody()->write(json_encode(['error' => 'El torneo ya está lleno']));
-                return $res->withStatus(409)->withHeader('Content-Type', 'application/json');
-            }
-
-            $stmtInsert = $this->db->prepare(
-                "INSERT INTO teams (tournament_id, name, captain_id) VALUES (?, ?, ?)"
-            );
-            $stmtInsert->execute([$tournamentId, $teamName, $user['id']]);
-
-            $this->db->commit();
-            $res->getBody()->write(json_encode(['message' => 'Equipo inscrito correctamente']));
-            return $res->withStatus(201)->withHeader('Content-Type', 'application/json');
-        } catch (PDOException $e) {
-            if ($this->db->inTransaction()) {
-                $this->db->rollBack();
-            }
-            $res->getBody()->write(json_encode(['error' => 'No se pudo inscribir el equipo']));
-            return $res->withStatus(500)->withHeader('Content-Type', 'application/json');
+        // Verificar que el torneo existe y no está lleno
+        $stmtTournament = $this->db->prepare("SELECT * FROM tournaments WHERE id = ?");
+        $stmtTournament->execute([$tournamentId]);
+        $tournament = $stmtTournament->fetch();
+        if (!$tournament) {
+            $res->getBody()->write(json_encode(['error' => 'Torneo no encontrado']));
+            return $res->withStatus(404)->withHeader('Content-Type', 'application/json');
         }
+
+        $stmtCount = $this->db->prepare("SELECT COUNT(*) FROM teams WHERE tournament_id = ?");
+        $stmtCount->execute([$tournamentId]);
+        $currentTeams = $stmtCount->fetchColumn();
+
+        if ($currentTeams >= $tournament['max_teams']) {
+            $res->getBody()->write(json_encode(['error' => 'El torneo ya está lleno']));
+            return $res->withStatus(409)->withHeader('Content-Type', 'application/json');
+        }
+
+        // Insertar equipo
+        $stmtInsert = $this->db->prepare(
+            "INSERT INTO teams (tournament_id, name, captain_id) VALUES (?, ?, ?)"
+        );
+        $stmtInsert->execute([$tournamentId, $teamName, $user['id']]);
+
+        $res->getBody()->write(json_encode(['message' => 'Equipo inscrito correctamente']));
+        return $res->withStatus(201)->withHeader('Content-Type', 'application/json');
     }
 }
