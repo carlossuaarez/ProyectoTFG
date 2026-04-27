@@ -33,8 +33,10 @@ class AuthController {
             return $this->json($res, ['error' => 'Email no válido'], 400);
         }
 
-        if (strlen($password) < 6) {
-            return $this->json($res, ['error' => 'La contraseña debe tener al menos 6 caracteres'], 400);
+        if (!$this->isStrongPassword($password)) {
+            return $this->json($res, [
+                'error' => 'La contraseña debe tener mínimo 8 caracteres e incluir mayúscula, minúscula y número'
+            ], 400);
         }
 
         $hash = password_hash($password, PASSWORD_DEFAULT);
@@ -422,5 +424,11 @@ class AuthController {
             return true;
         }
     }
+
+    private function isStrongPassword(string $password): bool {
+        // mínimo 8, al menos una minúscula, una mayúscula y un número
+        return (bool)preg_match('/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/', $password);
+    }
+
 } 
 
