@@ -9,30 +9,44 @@ require __DIR__ . '/../src/Controller/AuthController.php';
 require __DIR__ . '/../src/Controller/TournamentController.php';
 require __DIR__ . '/../src/Controller/AdminController.php';
 require __DIR__ . '/../src/Middleware/AuthMiddleware.php';
+require __DIR__ . '/../src/Middleware/RateLimitMiddleware.php';
 
 $dotenv = Dotenv\Dotenv::createImmutable(__DIR__ . '/..');
-$dotenv->load();
+$dotenv->safeLoad();
 
-// Conectar a la BD
-$db = require __DIR__ . '/../src/config/database.php';
+$appDebug = filter_var($_ENV['APP_DEBUG'] ?? 'false', FILTER_VALIDATE_BOOLEAN);
+$allowedOrigin = $_ENV['APP_CORS_ORIGIN'] ?? '*';
+
+// Conectar a BD de forma segura (sin filtrar errores técnicos al cliente)
+try {
+    $db = require __DIR__ . '/../src/config/database.php';
+} catch (Throwable $e) {
+    error_log('Fatal bootstrap error: ' . $e->getMessage());
+    http_response_code(500);
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode(['error' => 'Error interno del servidor']);
+    exit;
+}
 
 $app = AppFactory::create();
 
-// Middleware globales
 $app->addBodyParsingMiddleware();
 $app->addRoutingMiddleware();
-$app->addErrorMiddleware(true, true, true);
+
+$errorMiddleware = $app->addErrorMiddleware($appDebug, true, $appDebug);
+$errorMiddleware->getDefaultErrorHandler()->forceContentType('application/json');
 
 // Preflight CORS
 $app->options('/{routes:.+}', function (Request $req, Response $res) {
     return $res;
 });
 
-// Middleware CORS
-$app->add(function ($request, $handler) {
+// CORS
+$app->add(function ($request, $handler) use ($allowedOrigin) {
     $response = $handler->handle($request);
     return $response
-        ->withHeader('Access-Control-Allow-Origin', '*')
+        ->withHeader('Access-Control-Allow-Origin', $allowedOrigin)
+        ->withHeader('Vary', 'Origin')
         ->withHeader('Access-Control-Allow-Headers', 'X-Requested-With, Content-Type, Accept, Origin, Authorization')
         ->withHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
 });
@@ -42,24 +56,77 @@ $app->get('/', function (Request $req, Response $res) {
     return $res->withHeader('Content-Type', 'text/plain');
 });
 
-// Controladores
 $mailService = new MailService();
 $authController = new AuthController($db, $mailService);
 $tournamentController = new TournamentController($db);
 $adminController = new AdminController($db);
 $authMiddleware = new AuthMiddleware();
 
-// Rutas públicas auth
-$app->post('/api/register', [$authController, 'register']);
-$app->post('/api/login', [$authController, 'login']);
-$app->post('/api/auth/google', [$authController, 'googleLogin']);
-$app->post('/api/2fa/verify', [$authController, 'verify2fa']);
+// ---- Rate limiters (anti-abuso) ----
+$loginByIpLimiter = new RateLimitMiddleware(
+    $db,
+    'login_ip',
+    20,
+    900,
+    fn(Request $r) => RateLimitMiddleware::extractClientIp($r)
+);
 
-// Rutas públicas de torneos
+$loginByEmailLimiter = new RateLimitMiddleware(
+    $db,
+    'login_email',
+    8,
+    900,
+    function (Request $r): string {
+        $body = (array)$r->getParsedBody();
+        return strtolower(trim((string)($body['email'] ?? '')));
+    }
+);
+
+$googleByIpLimiter = new RateLimitMiddleware(
+    $db,
+    'google_ip',
+    20,
+    900,
+    fn(Request $r) => RateLimitMiddleware::extractClientIp($r)
+);
+
+$twoFaByIpLimiter = new RateLimitMiddleware(
+    $db,
+    'twofa_ip',
+    20,
+    600,
+    fn(Request $r) => RateLimitMiddleware::extractClientIp($r)
+);
+
+$twoFaByChallengeLimiter = new RateLimitMiddleware(
+    $db,
+    'twofa_challenge',
+    10,
+    600,
+    function (Request $r): string {
+        $body = (array)$r->getParsedBody();
+        return trim((string)($body['challenge_id'] ?? ''));
+    }
+);
+
+// Rutas auth públicas con rate limit
+$app->post('/api/register', [$authController, 'register']);
+$app->post('/api/login', [$authController, 'login'])
+    ->add($loginByEmailLimiter)
+    ->add($loginByIpLimiter);
+
+$app->post('/api/auth/google', [$authController, 'googleLogin'])
+    ->add($googleByIpLimiter);
+
+$app->post('/api/2fa/verify', [$authController, 'verify2fa'])
+    ->add($twoFaByChallengeLimiter)
+    ->add($twoFaByIpLimiter);
+
+// Rutas públicas torneos
 $app->get('/api/tournaments', [$tournamentController, 'getAll']);
 $app->get('/api/tournaments/{id}', [$tournamentController, 'getById']);
 
-// Rutas protegidas (requieren token)
+// Rutas protegidas
 $app->group('/api', function ($group) use ($tournamentController, $adminController) {
     $group->post('/tournaments', [$tournamentController, 'create']);
     $group->post('/tournaments/{id}/join', [$tournamentController, 'join']);

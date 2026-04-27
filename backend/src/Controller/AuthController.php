@@ -4,8 +4,7 @@ use Psr\Http\Message\ServerRequestInterface as Request;
 use Firebase\JWT\JWT;
 use Google\Client as GoogleClient;
 
-class AuthController
-{
+class AuthController {
     private $db;
     private $mailService;
 
@@ -228,6 +227,14 @@ class AuthController
 
     private function startTwoFactorChallenge(array $user, Response $res): Response
     {
+        $retryAfter = 0;
+        if (!$this->consumeRateLimit('otp_user', 'user:' . (string)$user['id'], 3, 600, $retryAfter)) {
+            return $this->json($res, [
+                'error' => 'Has solicitado demasiados códigos. Espera antes de volver a intentarlo.',
+                'retry_after_seconds' => $retryAfter
+            ], 429);
+        }
+
         $otpCode = str_pad((string)random_int(0, 999999), 6, '0', STR_PAD_LEFT);
         $otpHash = password_hash($otpCode, PASSWORD_DEFAULT);
         $challengeId = $this->generateUuidV4();
@@ -346,4 +353,74 @@ class AuthController
 
         return $value;
     }
-}
+
+    private function consumeRateLimit(
+    string $bucket,
+    string $rawKey,
+    int $maxRequests,
+    int $windowSeconds,
+    int &$retryAfter = 0
+    ): bool {
+        $retryAfter = 0;
+        $key = trim($rawKey) !== '' ? strtolower(trim($rawKey)) : 'anonymous';
+        $keyHash = hash('sha256', $key);
+
+        try {
+            $this->db->beginTransaction();
+
+            $select = $this->db->prepare(
+                "SELECT id, hits, reset_at
+                FROM rate_limits
+                WHERE bucket = ? AND key_hash = ?
+                LIMIT 1
+                FOR UPDATE"
+            );
+            $select->execute([$bucket, $keyHash]);
+            $row = $select->fetch(PDO::FETCH_ASSOC);
+
+            $newResetAt = (new DateTimeImmutable('now +' . $windowSeconds . ' seconds'))
+                ->format('Y-m-d H:i:s');
+
+            if (!$row) {
+                $insert = $this->db->prepare(
+                    "INSERT INTO rate_limits (bucket, key_hash, hits, reset_at)
+                    VALUES (?, ?, 1, ?)"
+                );
+                $insert->execute([$bucket, $keyHash, $newResetAt]);
+                $this->db->commit();
+                return true;
+            }
+
+            $hits = (int)$row['hits'];
+            $resetTs = strtotime((string)$row['reset_at']) ?: 0;
+            $nowTs = time();
+
+            if ($resetTs <= $nowTs) {
+                $update = $this->db->prepare("UPDATE rate_limits SET hits = 1, reset_at = ? WHERE id = ?");
+                $update->execute([$newResetAt, $row['id']]);
+                $this->db->commit();
+                return true;
+            }
+
+            if ($hits >= $maxRequests) {
+                $retryAfter = max(1, $resetTs - $nowTs);
+                $this->db->rollBack();
+                return false;
+            }
+
+            $update = $this->db->prepare("UPDATE rate_limits SET hits = hits + 1 WHERE id = ?");
+            $update->execute([$row['id']]);
+
+            $this->db->commit();
+            return true;
+        } catch (Throwable $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            error_log('consumeRateLimit error: ' . $e->getMessage());
+            // fail-open en error técnico
+            return true;
+        }
+    }
+} 
+
