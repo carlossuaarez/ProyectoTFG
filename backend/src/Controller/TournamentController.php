@@ -11,7 +11,7 @@ class TournamentController
         $this->db = $db;
     }
 
-    // Listado público (solo torneos public)
+    // Listado público compatible con legacy
     public function getAll(Request $req, Response $res): Response
     {
         try {
@@ -20,20 +20,21 @@ class TournamentController
                     id, name, description, game, type, max_teams, format,
                     start_date, start_time, prize,
                     location_name, location_address, location_lat, location_lng, is_online,
-                    visibility, created_by, created_at
+                    COALESCE(visibility, 'public') AS visibility,
+                    created_by, created_at
                 FROM tournaments
-                WHERE visibility = 'public'
+                WHERE COALESCE(visibility, 'public') = 'public'
                 ORDER BY start_date ASC, start_time ASC, id DESC
             ");
-            $tournaments = $stmt->fetchAll(PDO::FETCH_ASSOC);
-            return $this->json($res, $tournaments);
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            return $this->json($res, $rows);
         } catch (Throwable $e) {
             error_log('getAll tournaments error: ' . $e->getMessage());
             return $this->json($res, ['error' => 'No se pudieron cargar los torneos'], 500);
         }
     }
 
-    // Detalle: si es privado, requiere code en query (?code=XXXX)
+    // Soporta código por Header (preferido), body y query (retrocompatibilidad)
     public function getById(Request $req, Response $res, array $args): Response
     {
         $id = (int)($args['id'] ?? 0);
@@ -50,11 +51,14 @@ class TournamentController
                 return $this->json($res, ['error' => 'Torneo no encontrado'], 404);
             }
 
-            if (($tournament['visibility'] ?? 'public') === 'private') {
-                $queryCode = $this->sanitizeAccessCode((string)($req->getQueryParams()['code'] ?? ''));
+            $visibility = $this->normalizeVisibility((string)($tournament['visibility'] ?? 'public'));
+            $tournament['visibility'] = $visibility;
+
+            if ($visibility === 'private') {
+                $code = $this->resolveAccessCodeFromRequest($req);
                 $hash = (string)($tournament['access_code_hash'] ?? '');
 
-                if (!$this->verifyAccessCode($queryCode, $hash)) {
+                if (!$this->verifyAccessCode($code, $hash)) {
                     return $this->json($res, [
                         'error' => 'Este torneo es privado. Introduce el código de acceso.',
                         'requires_access_code' => true
@@ -83,20 +87,20 @@ class TournamentController
 
     public function create(Request $req, Response $res): Response
     {
-        $user = $req->getAttribute('user');
+        $user = (array)$req->getAttribute('user');
         $data = (array)$req->getParsedBody();
 
         $name = trim((string)($data['name'] ?? ''));
         $description = trim((string)($data['description'] ?? ''));
         $game = trim((string)($data['game'] ?? ''));
-        $type = trim((string)($data['type'] ?? '')); // sports | esports
+        $type = trim((string)($data['type'] ?? ''));
         $maxTeams = (int)($data['max_teams'] ?? 0);
-        $format = trim((string)($data['format'] ?? 'single_elim')); // league | single_elim
+        $format = trim((string)($data['format'] ?? 'single_elim'));
         $startDate = trim((string)($data['start_date'] ?? ''));
         $startTime = trim((string)($data['start_time'] ?? ''));
         $prize = trim((string)($data['prize'] ?? ''));
 
-        $visibility = trim((string)($data['visibility'] ?? 'public')); // public | private
+        $visibility = $this->normalizeVisibility((string)($data['visibility'] ?? 'public'));
         $requestedAccessCode = trim((string)($data['access_code'] ?? ''));
 
         $locationName = trim((string)($data['location_name'] ?? ''));
@@ -121,28 +125,8 @@ class TournamentController
             return $this->json($res, ['error' => 'max_teams debe estar entre 2 y 128'], 400);
         }
 
-        if (mb_strlen($name) > 100) {
-            return $this->json($res, ['error' => 'El nombre excede 100 caracteres'], 400);
-        }
-
-        if (mb_strlen($description) < 10 || mb_strlen($description) > 2000) {
-            return $this->json($res, ['error' => 'La descripción debe tener entre 10 y 2000 caracteres'], 400);
-        }
-
-        if (mb_strlen($game) > 50) {
-            return $this->json($res, ['error' => 'El deporte/juego excede 50 caracteres'], 400);
-        }
-
-        if ($prize !== '' && mb_strlen($prize) > 255) {
-            return $this->json($res, ['error' => 'El premio excede 255 caracteres'], 400);
-        }
-
-        if (!$this->isValidDateYmd($startDate)) {
-            return $this->json($res, ['error' => 'start_date debe tener formato YYYY-MM-DD'], 400);
-        }
-
-        if ($startDate < date('Y-m-d')) {
-            return $this->json($res, ['error' => 'La fecha de inicio no puede ser anterior a hoy'], 400);
+        if (!$this->isValidDateYmd($startDate) || $startDate < date('Y-m-d')) {
+            return $this->json($res, ['error' => 'La fecha de inicio no es válida'], 400);
         }
 
         if (!$this->isValidTimeHm($startTime)) {
@@ -151,11 +135,6 @@ class TournamentController
 
         $startTimeSql = $startTime . ':00';
 
-        if (!in_array($visibility, ['public', 'private'], true)) {
-            return $this->json($res, ['error' => 'visibility debe ser public o private'], 400);
-        }
-
-        // Ubicación por tipo
         $isOnline = 0;
         $locationLat = null;
         $locationLng = null;
@@ -232,11 +211,9 @@ class TournamentController
                 $accessCodeLast4
             ]);
 
-            $newId = (int)$this->db->lastInsertId();
-
             $payload = [
                 'message' => 'Torneo creado correctamente',
-                'id' => $newId
+                'id' => (int)$this->db->lastInsertId()
             ];
 
             if ($visibility === 'private') {
@@ -245,25 +222,21 @@ class TournamentController
             }
 
             return $this->json($res, $payload, 201);
-        } catch (PDOException $e) {
-            error_log('create tournament sql error: ' . $e->getMessage());
-            return $this->json($res, ['error' => 'No se pudo crear el torneo'], 500);
         } catch (Throwable $e) {
             error_log('create tournament error: ' . $e->getMessage());
-            return $this->json($res, ['error' => 'Error interno al crear torneo'], 500);
+            return $this->json($res, ['error' => 'No se pudo crear el torneo'], 500);
         }
     }
 
     // Join: para privados exige access_code en body
     public function join(Request $req, Response $res, array $args): Response
     {
-        $user = $req->getAttribute('user');
+        $user = (array)$req->getAttribute('user');
         $userId = (int)($user['id'] ?? 0);
         $tournamentId = (int)($args['id'] ?? 0);
         $data = (array)$req->getParsedBody();
 
         $teamName = trim((string)($data['team_name'] ?? ''));
-        $accessCode = $this->sanitizeAccessCode((string)($data['access_code'] ?? ''));
 
         if ($tournamentId <= 0) {
             return $this->json($res, ['error' => 'ID de torneo no válido'], 400);
@@ -281,7 +254,7 @@ class TournamentController
             $this->db->beginTransaction();
 
             $stmtTournament = $this->db->prepare("
-                SELECT id, max_teams, visibility, access_code_hash
+                SELECT id, max_teams, COALESCE(visibility, 'public') AS visibility, access_code_hash
                 FROM tournaments
                 WHERE id = ?
                 FOR UPDATE
@@ -295,7 +268,8 @@ class TournamentController
             }
 
             if (($tournament['visibility'] ?? 'public') === 'private') {
-                if (!$this->verifyAccessCode($accessCode, (string)($tournament['access_code_hash'] ?? ''))) {
+                $code = $this->resolveAccessCodeFromRequest($req, $data);
+                if (!$this->verifyAccessCode($code, (string)($tournament['access_code_hash'] ?? ''))) {
                     $this->db->rollBack();
                     return $this->json($res, ['error' => 'Código de acceso inválido para torneo privado'], 403);
                 }
@@ -338,25 +312,36 @@ class TournamentController
 
             $this->db->commit();
             return $this->json($res, ['message' => 'Equipo inscrito correctamente'], 201);
-        } catch (PDOException $e) {
-            if ($this->db->inTransaction()) {
-                $this->db->rollBack();
-            }
-
-            if ((int)$e->getCode() === 23000 || str_contains($e->getMessage(), 'Duplicate entry')) {
-                return $this->json($res, ['error' => 'Datos duplicados al inscribir equipo'], 409);
-            }
-
-            error_log('join tournament sql error: ' . $e->getMessage());
-            return $this->json($res, ['error' => 'No se pudo completar la inscripción'], 500);
         } catch (Throwable $e) {
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
 
             error_log('join tournament error: ' . $e->getMessage());
-            return $this->json($res, ['error' => 'Error interno al inscribir equipo'], 500);
+            return $this->json($res, ['error' => 'No se pudo completar la inscripción'], 500);
         }
+    }
+
+    private function resolveAccessCodeFromRequest(Request $req, array $body = []): string
+    {
+        $fromBody = $this->sanitizeAccessCode((string)($body['access_code'] ?? ''));
+        if ($fromBody !== '') {
+            return $fromBody;
+        }
+
+        $fromHeader = $this->sanitizeAccessCode($req->getHeaderLine('X-Tournament-Code'));
+        if ($fromHeader !== '') {
+            return $fromHeader;
+        }
+
+        // Retrocompatibilidad temporal con enlaces ?code=
+        return $this->sanitizeAccessCode((string)($req->getQueryParams()['code'] ?? ''));
+    }
+
+    private function normalizeVisibility(string $value): string
+    {
+        $v = strtolower(trim($value));
+        return $v === 'private' ? 'private' : 'public';
     }
 
     private function verifyAccessCode(string $candidate, string $hash): bool
@@ -369,8 +354,7 @@ class TournamentController
 
     private function sanitizeAccessCode(string $code): string
     {
-        $clean = preg_replace('/[^a-zA-Z0-9]/', '', strtoupper(trim($code)));
-        return (string)$clean;
+        return (string)preg_replace('/[^a-zA-Z0-9]/', '', strtoupper(trim($code)));
     }
 
     private function generateAccessCode(int $length = 8): string

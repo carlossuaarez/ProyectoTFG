@@ -45,7 +45,10 @@ defineProps({
 })
 
 function formatDateTime(date, time) {
-  const datePart = new Date(date).toLocaleDateString('es-ES')
+  if (!date) return '-'
+  const parsed = new Date(date)
+  if (Number.isNaN(parsed.getTime())) return '-'
+  const datePart = parsed.toLocaleDateString('es-ES')
   const hhmm = String(time || '00:00:00').slice(0, 5)
   return `${datePart} · ${hhmm}`
 }

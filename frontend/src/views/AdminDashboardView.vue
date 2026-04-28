@@ -8,11 +8,7 @@
     <div class="filters-panel">
       <div class="field">
         <label for="search">Buscar</label>
-        <input
-          id="search"
-          v-model.trim="searchTerm"
-          placeholder="Nombre, disciplina, lugar..."
-        />
+        <input id="search" v-model.trim="searchTerm" placeholder="Nombre, disciplina, lugar..." />
       </div>
 
       <div class="field">
@@ -99,12 +95,8 @@
 
             <td>
               <div class="actions-cell">
-                <router-link class="view-btn" :to="buildTournamentRoute(t)">
-                  Ver
-                </router-link>
-                <button class="delete-btn" type="button" @click="deleteTournament(t.id)">
-                  Eliminar
-                </button>
+                <button class="view-btn" type="button" @click="viewTournament(t)">Ver</button>
+                <button class="delete-btn" type="button" @click="deleteTournament(t.id)">Eliminar</button>
               </div>
             </td>
           </tr>
@@ -115,12 +107,28 @@
         <p>No hay torneos que coincidan con los filtros.</p>
       </div>
     </div>
+
+    <!-- Modal código privado -->
+    <div v-if="privateModalOpen" class="modal-backdrop">
+      <div class="modal-card">
+        <h3>Torneo privado</h3>
+        <p>Introduce el código para abrir el torneo privado.</p>
+        <input v-model.trim="privateCodeInput" placeholder="Código de acceso" />
+        <div class="modal-actions">
+          <button type="button" class="ghost-btn" @click="closePrivateModal">Cancelar</button>
+          <button type="button" class="primary-btn" @click="confirmPrivateCode">Acceder</button>
+        </div>
+      </div>
+    </div>
   </section>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import api from '../services/api'
+
+const router = useRouter()
 
 const tournaments = ref([])
 const loading = ref(true)
@@ -129,6 +137,27 @@ const error = ref('')
 const searchTerm = ref('')
 const typeFilter = ref('all')
 const visibilityFilter = ref('all')
+
+const privateModalOpen = ref(false)
+const privateCodeInput = ref('')
+const selectedPrivateTournament = ref(null)
+
+const ACCESS_CODE_STORAGE_KEY = 'tourneyhub_private_codes'
+
+function readCodeMap() {
+  try {
+    const raw = sessionStorage.getItem(ACCESS_CODE_STORAGE_KEY)
+    return raw ? JSON.parse(raw) : {}
+  } catch {
+    return {}
+  }
+}
+
+function saveCodeForTournament(tournamentId, code) {
+  const map = readCodeMap()
+  map[String(tournamentId)] = code
+  sessionStorage.setItem(ACCESS_CODE_STORAGE_KEY, JSON.stringify(map))
+}
 
 async function fetchAdminTournaments() {
   loading.value = true
@@ -149,21 +178,14 @@ const filteredTournaments = computed(() => {
   const q = searchTerm.value.toLowerCase()
 
   return tournaments.value
+    .map((t) => ({ ...t, visibility: t.visibility || 'public' }))
     .filter((t) => (typeFilter.value === 'all' ? true : t.type === typeFilter.value))
     .filter((t) => (visibilityFilter.value === 'all' ? true : t.visibility === visibilityFilter.value))
     .filter((t) => {
       if (!q) return true
-
-      const haystack = [
-        t.name,
-        t.game,
-        t.description,
-        t.location_name,
-        t.location_address
-      ]
+      const haystack = [t.name, t.game, t.description, t.location_name, t.location_address]
         .map((v) => String(v || '').toLowerCase())
         .join(' ')
-
       return haystack.includes(q)
     })
     .sort((a, b) => {
@@ -182,21 +204,37 @@ function shortDescription(value) {
 
 function formatDateTime(date, time) {
   if (!date) return '-'
-  const datePart = new Date(date).toLocaleDateString('es-ES')
+  const parsed = new Date(date)
+  if (Number.isNaN(parsed.getTime())) return '-'
+  const datePart = parsed.toLocaleDateString('es-ES')
   const hhmm = String(time || '00:00:00').slice(0, 5)
   return `${datePart} · ${hhmm}`
 }
 
-function buildTournamentRoute(tournament) {
-  const base = `/tournaments/${tournament.id}`
-
-  // Para privados, desde admin intentamos abrir con query de código si existe en el objeto.
-  // Nota: por seguridad normalmente no deberías exponer el código completo en listados.
-  if (tournament.visibility === 'private' && tournament.private_access_code) {
-    return `${base}?code=${encodeURIComponent(tournament.private_access_code)}`
+function viewTournament(tournament) {
+  if ((tournament.visibility || 'public') === 'private') {
+    selectedPrivateTournament.value = tournament
+    privateCodeInput.value = ''
+    privateModalOpen.value = true
+    return
   }
+  router.push(`/tournaments/${tournament.id}`)
+}
 
-  return base
+function closePrivateModal() {
+  privateModalOpen.value = false
+  privateCodeInput.value = ''
+  selectedPrivateTournament.value = null
+}
+
+function confirmPrivateCode() {
+  const code = privateCodeInput.value.trim().replace(/[^a-zA-Z0-9]/g, '').toUpperCase()
+  if (!code || !selectedPrivateTournament.value) return
+
+  saveCodeForTournament(selectedPrivateTournament.value.id, code)
+  const targetId = selectedPrivateTournament.value.id
+  closePrivateModal()
+  router.push(`/tournaments/${targetId}`)
 }
 
 async function deleteTournament(id) {
@@ -213,17 +251,9 @@ async function deleteTournament(id) {
 </script>
 
 <style scoped>
-.admin-head {
-  margin-bottom: 0.9rem;
-}
-
-.admin-head h1 {
-  margin-bottom: 0.2rem;
-}
-
-.admin-head p {
-  color: #64748b;
-}
+.admin-head { margin-bottom: 0.9rem; }
+.admin-head h1 { margin-bottom: 0.2rem; }
+.admin-head p { color: #64748b; }
 
 .filters-panel {
   background: #fff;
@@ -236,20 +266,9 @@ async function deleteTournament(id) {
   gap: 0.7rem;
   align-items: end;
 }
-
-.field {
-  display: grid;
-  gap: 0.35rem;
-}
-
-.field label {
-  font-size: 0.82rem;
-  color: #64748b;
-  font-weight: 700;
-}
-
-.field input,
-.field select {
+.field { display: grid; gap: 0.35rem; }
+.field label { font-size: 0.82rem; color: #64748b; font-weight: 700; }
+.field input, .field select {
   border: 1px solid #dbe1ea;
   border-radius: 10px;
   padding: 0.58rem 0.68rem;
@@ -264,15 +283,8 @@ async function deleteTournament(id) {
   padding: 0.5rem;
   display: grid;
 }
-
-.stats-box strong {
-  font-size: 1.1rem;
-}
-
-.stats-box span {
-  font-size: 0.82rem;
-  color: #64748b;
-}
+.stats-box strong { font-size: 1.1rem; }
+.stats-box span { font-size: 0.82rem; color: #64748b; }
 
 .table-wrapper {
   background: #fff;
@@ -280,13 +292,7 @@ async function deleteTournament(id) {
   border-radius: 14px;
   overflow: auto;
 }
-
-table {
-  width: 100%;
-  border-collapse: collapse;
-  min-width: 1120px;
-}
-
+table { width: 100%; border-collapse: collapse; min-width: 1120px; }
 thead th {
   text-align: left;
   background: #f8fafc;
@@ -302,25 +308,11 @@ tbody td {
   vertical-align: top;
 }
 
-.name-cell {
-  display: grid;
-  gap: 0.2rem;
-}
+.name-cell { display: grid; gap: 0.2rem; }
+.name-cell small { color: #64748b; font-size: 0.82rem; }
 
-.name-cell small {
-  color: #64748b;
-  font-size: 0.82rem;
-}
-
-.location-cell {
-  display: grid;
-  gap: 0.2rem;
-}
-
-.location-cell small {
-  color: #64748b;
-  font-size: 0.8rem;
-}
+.location-cell { display: grid; gap: 0.2rem; }
+.location-cell small { color: #64748b; font-size: 0.8rem; }
 
 .badge {
   border-radius: 999px;
@@ -329,26 +321,10 @@ tbody td {
   font-weight: 700;
   display: inline-block;
 }
-
-.badge.type.sports {
-  background: #dcfce7;
-  color: #166534;
-}
-
-.badge.type.esports {
-  background: #dbeafe;
-  color: #1d4ed8;
-}
-
-.badge.visibility.public {
-  background: #e2e8f0;
-  color: #334155;
-}
-
-.badge.visibility.private {
-  background: #fee2e2;
-  color: #991b1b;
-}
+.badge.type.sports { background: #dcfce7; color: #166534; }
+.badge.type.esports { background: #dbeafe; color: #1d4ed8; }
+.badge.visibility.public { background: #e2e8f0; color: #334155; }
+.badge.visibility.private { background: #fee2e2; color: #991b1b; }
 
 .code-last4 {
   display: block;
@@ -357,21 +333,17 @@ tbody td {
   font-size: 0.78rem;
 }
 
-.actions-cell {
-  display: flex;
-  gap: 0.45rem;
-  align-items: center;
-}
+.actions-cell { display: flex; gap: 0.45rem; align-items: center; }
 
 .view-btn {
   border: 1px solid #bae6fd;
   background: #eff6ff;
   color: #1d4ed8;
-  text-decoration: none;
   padding: 0.35rem 0.58rem;
   border-radius: 8px;
   font-weight: 700;
   font-size: 0.86rem;
+  cursor: pointer;
 }
 
 .delete-btn {
@@ -410,18 +382,56 @@ tbody td {
   cursor: pointer;
   font-weight: 600;
 }
+.empty { text-align: center; padding: 1.2rem; color: #64748b; }
 
-.empty {
-  text-align: center;
-  padding: 1.2rem;
-  color: #64748b;
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: grid;
+  place-items: center;
+  z-index: 120;
+}
+.modal-card {
+  width: min(420px, 92vw);
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 1rem;
+}
+.modal-card h3 { margin-bottom: 0.35rem; }
+.modal-card p { color: #64748b; margin-bottom: 0.65rem; }
+.modal-card input {
+  width: 100%;
+  border: 1px solid #dbe1ea;
+  border-radius: 10px;
+  padding: 0.62rem 0.72rem;
+}
+.modal-actions {
+  margin-top: 0.75rem;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+.ghost-btn {
+  border: 1px solid #dbe1ea;
+  border-radius: 8px;
+  padding: 0.45rem 0.75rem;
+  background: #fff;
+  cursor: pointer;
+}
+.primary-btn {
+  border: none;
+  border-radius: 8px;
+  padding: 0.45rem 0.75rem;
+  background: #0284c7;
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
 }
 
 @media (max-width: 900px) {
-  .filters-panel {
-    grid-template-columns: 1fr;
-  }
-
+  .filters-panel { grid-template-columns: 1fr; }
   .stats-box {
     text-align: left;
     display: flex;

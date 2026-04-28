@@ -1,5 +1,6 @@
 <?php
 use Slim\Factory\AppFactory;
+use Slim\Routing\RouteContext;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 
@@ -17,7 +18,7 @@ $dotenv->safeLoad();
 $appDebug = filter_var($_ENV['APP_DEBUG'] ?? 'false', FILTER_VALIDATE_BOOLEAN);
 $allowedOrigin = $_ENV['APP_CORS_ORIGIN'] ?? '*';
 
-// Conectar a BD de forma segura (sin filtrar errores técnicos al cliente)
+// Conectar a BD
 try {
     $db = require __DIR__ . '/../src/config/database.php';
 } catch (Throwable $e) {
@@ -47,7 +48,7 @@ $app->add(function ($request, $handler) use ($allowedOrigin) {
     return $response
         ->withHeader('Access-Control-Allow-Origin', $allowedOrigin)
         ->withHeader('Vary', 'Origin')
-        ->withHeader('Access-Control-Allow-Headers', 'X-Requested-With, Content-Type, Accept, Origin, Authorization')
+        ->withHeader('Access-Control-Allow-Headers', 'X-Requested-With, Content-Type, Accept, Origin, Authorization, X-Tournament-Code')
         ->withHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
 });
 
@@ -62,7 +63,7 @@ $tournamentController = new TournamentController($db);
 $adminController = new AdminController($db);
 $authMiddleware = new AuthMiddleware();
 
-// ---- Rate limiters (anti-abuso) ----
+// ---- Rate limiters auth ----
 $loginByIpLimiter = new RateLimitMiddleware(
     $db,
     'login_ip',
@@ -109,7 +110,34 @@ $twoFaByChallengeLimiter = new RateLimitMiddleware(
     }
 );
 
-// Rutas auth públicas con rate limit
+// ---- Rate limiters torneos privados (anti brute-force código) ----
+$tournamentDetailLimiter = new RateLimitMiddleware(
+    $db,
+    'tournament_detail_ip_id',
+    60,  // 60 req/10m por IP+torneo
+    600,
+    function (Request $r): string {
+        $ip = RateLimitMiddleware::extractClientIp($r);
+        $route = RouteContext::fromRequest($r)->getRoute();
+        $id = $route ? (string)$route->getArgument('id') : '0';
+        return $ip . ':' . $id;
+    }
+);
+
+$tournamentJoinLimiter = new RateLimitMiddleware(
+    $db,
+    'tournament_join_ip_id',
+    30,  // 30 req/10m por IP+torneo
+    600,
+    function (Request $r): string {
+        $ip = RateLimitMiddleware::extractClientIp($r);
+        $route = RouteContext::fromRequest($r)->getRoute();
+        $id = $route ? (string)$route->getArgument('id') : '0';
+        return $ip . ':' . $id;
+    }
+);
+
+// Rutas auth públicas
 $app->post('/api/register', [$authController, 'register']);
 $app->post('/api/login', [$authController, 'login'])
     ->add($loginByEmailLimiter)
@@ -124,7 +152,8 @@ $app->post('/api/2fa/verify', [$authController, 'verify2fa'])
 
 // Rutas públicas torneos
 $app->get('/api/tournaments', [$tournamentController, 'getAll']);
-$app->get('/api/tournaments/{id}', [$tournamentController, 'getById']);
+$app->get('/api/tournaments/{id}', [$tournamentController, 'getById'])
+    ->add($tournamentDetailLimiter);
 
 // Rutas protegidas
 $app->group('/api', function ($group) use ($tournamentController, $adminController) {
@@ -132,6 +161,6 @@ $app->group('/api', function ($group) use ($tournamentController, $adminControll
     $group->post('/tournaments/{id}/join', [$tournamentController, 'join']);
     $group->get('/admin/tournaments', [$adminController, 'getAllTournaments']);
     $group->delete('/admin/tournaments/{id}', [$adminController, 'deleteTournament']);
-})->add($authMiddleware);
+})->add($authMiddleware)->add($tournamentJoinLimiter);
 
 $app->run();

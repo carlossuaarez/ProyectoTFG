@@ -1,27 +1,23 @@
 <template>
   <section v-if="loading" class="state">Cargando torneo...</section>
-
+ 
   <section v-else-if="requiresAccessCode && !tournament" class="state state-private">
     <h2>Este torneo es privado</h2>
-    <p>Introduce el código de acceso o abre el enlace QR que te hayan compartido.</p>
-
+    <p>Introduce el código de acceso para continuar.</p>
+ 
     <div class="private-unlock">
-      <input
-        v-model.trim="accessCodeInput"
-        placeholder="Código de acceso"
-        autocomplete="one-time-code"
-      />
+      <input v-model.trim="accessCodeInput" placeholder="Código de acceso" autocomplete="one-time-code" />
       <button type="button" @click="unlockPrivateTournament">Acceder</button>
     </div>
-
+ 
     <p v-if="error" class="msg error">{{ error }}</p>
   </section>
-
+ 
   <section v-else-if="error" class="state state-error">
     <p>{{ error }}</p>
     <button type="button" @click="fetchTournament">Reintentar</button>
   </section>
-
+ 
   <section v-else-if="tournament" class="detail-page">
     <article class="main-card">
       <div class="head">
@@ -32,11 +28,11 @@
           {{ tournament.visibility === 'private' ? 'Privado' : 'Público' }}
         </span>
       </div>
-
+ 
       <h1>{{ tournament.name }}</h1>
       <p class="game">{{ tournament.game }}</p>
       <p class="description">{{ tournament.description || 'Sin descripción.' }}</p>
-
+ 
       <div class="info-grid">
         <div class="info-item">
           <span>Inicio</span>
@@ -55,7 +51,7 @@
           <strong>{{ tournament.prize || 'Sin premio' }}</strong>
         </div>
       </div>
-
+ 
       <div class="location-box">
         <h3>Ubicación</h3>
         <p v-if="isOnline"><strong>Online</strong></p>
@@ -73,15 +69,15 @@
         </template>
       </div>
     </article>
-
+ 
     <article class="side-card">
       <h2>Equipos inscritos</h2>
-
+ 
       <ul v-if="teams.length > 0" class="team-list">
         <li v-for="team in teams" :key="team.id">{{ team.name }}</li>
       </ul>
       <p v-else class="empty">Todavía no hay equipos inscritos.</p>
-
+ 
       <div v-if="token && !alreadyJoined" class="join-box">
         <h3>Inscribir equipo</h3>
         <div class="join-row">
@@ -90,59 +86,81 @@
             {{ joinLoading ? 'Inscribiendo...' : 'Inscribir' }}
           </button>
         </div>
-
+ 
         <div v-if="tournament.visibility === 'private'" class="private-note">
-          Torneo privado: usando código del enlace.
+          Torneo privado: usando código guardado en esta sesión.
         </div>
-
+ 
         <p v-if="joinError" class="msg error">{{ joinError }}</p>
         <p v-if="joinSuccess" class="msg success">{{ joinSuccess }}</p>
       </div>
-
+ 
       <p v-else-if="!token" class="login-tip">
         Inicia sesión para inscribir un equipo en este torneo.
       </p>
     </article>
   </section>
 </template>
-
+ 
 <script setup>
 import { ref, onMounted, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { storeToRefs } from 'pinia'
 import api from '../services/api'
-
+ 
 const route = useRoute()
 const router = useRouter()
-
+ 
 const authStore = useAuthStore()
 const { token } = storeToRefs(authStore)
-
+ 
 const tournament = ref(null)
 const teams = ref([])
-
+ 
 const loading = ref(true)
 const error = ref('')
-
+ 
 const requiresAccessCode = ref(false)
 const accessCodeInput = ref('')
-
+ 
 const teamName = ref('')
 const joinLoading = ref(false)
 const joinError = ref('')
 const joinSuccess = ref('')
 const alreadyJoined = ref(false)
-
+ 
+const ACCESS_CODE_STORAGE_KEY = 'tourneyhub_private_codes'
+ 
+function readCodeMap() {
+  try {
+    const raw = sessionStorage.getItem(ACCESS_CODE_STORAGE_KEY)
+    return raw ? JSON.parse(raw) : {}
+  } catch {
+    return {}
+  }
+}
+ 
+function saveAccessCodeForTournament(tournamentId, code) {
+  const map = readCodeMap()
+  map[String(tournamentId)] = code
+  sessionStorage.setItem(ACCESS_CODE_STORAGE_KEY, JSON.stringify(map))
+}
+ 
+function getAccessCodeForTournament(tournamentId) {
+  const map = readCodeMap()
+  return String(map[String(tournamentId)] || '')
+}
+ 
 const isOnline = computed(() => Number(tournament.value?.is_online || 0) === 1)
-
+ 
 const mapEmbedUrl = computed(() => {
   if (!tournament.value || isOnline.value) return ''
-
+ 
   const lat = Number(tournament.value.location_lat)
   const lng = Number(tournament.value.location_lng)
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return ''
-
+ 
   const delta = 0.01
   const left = lng - delta
   const right = lng + delta
@@ -150,34 +168,54 @@ const mapEmbedUrl = computed(() => {
   const bottom = lat - delta
   const bbox = `${left},${bottom},${right},${top}`
   const marker = `${lat},${lng}`
-
+ 
   return `https://www.openstreetmap.org/export/embed.html?bbox=${encodeURIComponent(bbox)}&layer=mapnik&marker=${encodeURIComponent(marker)}`
 })
-
-function getRouteAccessCode() {
+ 
+function getQueryAccessCode() {
   const code = route.query.code
   return typeof code === 'string' ? code.trim() : ''
 }
-
+ 
+function getCurrentAccessCode() {
+  const fromSession = getAccessCodeForTournament(route.params.id)
+  if (fromSession) return fromSession
+  return getQueryAccessCode()
+}
+ 
 async function fetchTournament() {
   loading.value = true
   error.value = ''
   joinError.value = ''
   joinSuccess.value = ''
-
+ 
   try {
-    const code = getRouteAccessCode()
-    const config = code ? { params: { code } } : undefined
-
+    const queryCode = getQueryAccessCode()
+    if (queryCode) {
+      saveAccessCodeForTournament(route.params.id, queryCode)
+    }
+ 
+    const code = getCurrentAccessCode()
+    const config = code
+      ? { headers: { 'X-Tournament-Code': code } }
+      : undefined
+ 
     const res = await api.get(`/tournaments/${route.params.id}`, config)
     tournament.value = res.data
     teams.value = res.data.teams || []
     requiresAccessCode.value = false
-    accessCodeInput.value = code
+    accessCodeInput.value = ''
+ 
+    // Si venía por query, lo limpiamos para no dejarlo en URL/historial
+    if (queryCode) {
+      const newQuery = { ...route.query }
+      delete newQuery.code
+      router.replace({ path: route.path, query: newQuery })
+    }
   } catch (err) {
     tournament.value = null
     teams.value = []
-
+ 
     if (err.response?.status === 403 && err.response?.data?.requires_access_code) {
       requiresAccessCode.value = true
       error.value = err.response?.data?.error || 'Torneo privado: introduce código.'
@@ -190,20 +228,18 @@ async function fetchTournament() {
     loading.value = false
   }
 }
-
+ 
 function unlockPrivateTournament() {
-  const code = accessCodeInput.value.trim()
+  const code = accessCodeInput.value.trim().replace(/[^a-zA-Z0-9]/g, '').toUpperCase()
   if (!code) {
     error.value = 'Introduce un código de acceso.'
     return
   }
-
-  router.replace({
-    path: route.path,
-    query: { ...route.query, code }
-  })
+ 
+  saveAccessCodeForTournament(route.params.id, code)
+  fetchTournament()
 }
-
+ 
 async function joinTournament() {
   const name = teamName.value.trim()
   if (!name) {
@@ -211,16 +247,16 @@ async function joinTournament() {
     joinSuccess.value = ''
     return
   }
-
+ 
   joinLoading.value = true
   joinError.value = ''
   joinSuccess.value = ''
-
+ 
   try {
     const payload = { team_name: name }
-
+ 
     if (tournament.value?.visibility === 'private') {
-      const code = getRouteAccessCode() || accessCodeInput.value.trim()
+      const code = getAccessCodeForTournament(route.params.id)
       if (!code) {
         joinError.value = 'Este torneo es privado y requiere código.'
         joinLoading.value = false
@@ -228,9 +264,9 @@ async function joinTournament() {
       }
       payload.access_code = code
     }
-
+ 
     await api.post(`/tournaments/${route.params.id}/join`, payload)
-
+ 
     joinSuccess.value = 'Equipo inscrito correctamente.'
     teamName.value = ''
     alreadyJoined.value = true
@@ -241,20 +277,23 @@ async function joinTournament() {
     joinLoading.value = false
   }
 }
-
+ 
 function formatDateTime(date, time) {
-  const datePart = new Date(date).toLocaleDateString('es-ES')
+  if (!date) return '-'
+  const parsed = new Date(date)
+  if (Number.isNaN(parsed.getTime())) return '-'
+  const datePart = parsed.toLocaleDateString('es-ES')
   const hhmm = String(time || '00:00:00').slice(0, 5)
   return `${datePart} · ${hhmm}`
 }
-
+ 
 watch(
-  () => [route.params.id, route.query.code],
+  () => route.params.id,
   () => {
     fetchTournament()
   }
 )
-
+ 
 onMounted(fetchTournament)
 </script>
 

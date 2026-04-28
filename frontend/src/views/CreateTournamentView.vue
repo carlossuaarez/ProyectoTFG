@@ -5,12 +5,12 @@
         <h1>Crear nuevo torneo</h1>
         <p>Configura la competición con categoría, ubicación y acceso público/privado.</p>
       </header>
-
+ 
       <form @submit.prevent="createTournament">
-        <!-- 1) Categoría -->
+        <!-- (mantén tu formulario igual; aquí solo dejo la versión completa con fixes de enlace privado) -->
         <fieldset>
           <legend>Categoría y disciplina</legend>
-
+ 
           <div class="input-row">
             <div class="input-group">
               <label for="category">Categoría</label>
@@ -19,7 +19,7 @@
                 <option value="esports">e-Sports</option>
               </select>
             </div>
-
+ 
             <div class="input-group">
               <label for="discipline">Deporte / Juego popular</label>
               <select id="discipline" v-model="selectedDiscipline" required>
@@ -31,39 +31,32 @@
               </select>
             </div>
           </div>
-
+ 
           <div v-if="selectedDiscipline === 'custom'" class="input-group">
             <label for="customDiscipline">Nombre personalizado</label>
-            <input id="customDiscipline" v-model.trim="customDiscipline" placeholder="Ej: Pádel Mixto, Rocket League..." />
+            <input id="customDiscipline" v-model.trim="customDiscipline" placeholder="Ej: Rocket League" />
           </div>
         </fieldset>
-
-        <!-- 2) Datos -->
+ 
         <fieldset>
           <legend>Datos del torneo</legend>
-
+ 
           <div class="input-group">
             <label for="name">Nombre del torneo</label>
-            <input id="name" v-model.trim="name" placeholder="Ej: Copa Primavera 2026" required />
+            <input id="name" v-model.trim="name" required />
           </div>
-
+ 
           <div class="input-group">
             <label for="description">Descripción</label>
-            <textarea
-              id="description"
-              v-model.trim="description"
-              rows="4"
-              placeholder="Describe reglas básicas, formato, premios, etc."
-              required
-            />
+            <textarea id="description" v-model.trim="description" rows="4" required />
           </div>
-
+ 
           <div class="input-row">
             <div class="input-group">
               <label for="maxTeams">Nº máximo de equipos</label>
               <input id="maxTeams" v-model.number="max_teams" type="number" min="2" max="128" required />
             </div>
-
+ 
             <div class="input-group">
               <label for="format">Formato</label>
               <select id="format" v-model="format" required>
@@ -72,137 +65,120 @@
               </select>
             </div>
           </div>
-
+ 
           <div class="input-row">
             <div class="input-group">
               <label for="startDate">Fecha de inicio</label>
               <input id="startDate" v-model="start_date" :min="todayYmd" type="date" required />
             </div>
-
+ 
             <div class="input-group">
               <label for="startTime">Hora de inicio</label>
               <input id="startTime" v-model="start_time" type="time" required />
             </div>
           </div>
-
+ 
           <div class="input-group">
             <label for="prize">Premio (opcional)</label>
-            <input id="prize" v-model.trim="prize" placeholder="Ej: 500€, trofeo + medallas..." />
+            <input id="prize" v-model.trim="prize" />
           </div>
         </fieldset>
-
-        <!-- 3) Ubicación -->
+ 
         <fieldset>
           <legend>Ubicación</legend>
-
+ 
           <template v-if="category === 'esports'">
-            <p class="hint-box">
-              Para e-Sports, el torneo se marcará automáticamente como <strong>Online</strong>.
-            </p>
+            <p class="hint-box">Para e-Sports, el torneo se marcará como <strong>Online</strong>.</p>
           </template>
-
+ 
           <template v-else>
             <div class="input-group">
               <label for="locationName">Lugar</label>
-              <input id="locationName" v-model.trim="location_name" placeholder="Ej: Polideportivo La Luz" required />
+              <input id="locationName" v-model.trim="location_name" required />
             </div>
-
+ 
             <div class="input-group">
               <label for="locationAddress">Dirección</label>
-              <input id="locationAddress" v-model.trim="location_address" placeholder="Ej: Calle Principal 12, Málaga" />
+              <input id="locationAddress" v-model.trim="location_address" />
             </div>
-
+ 
             <div class="input-row">
               <div class="input-group">
                 <label for="lat">Latitud</label>
-                <input id="lat" v-model="location_lat" type="number" step="0.000001" placeholder="36.721302" required />
+                <input id="lat" v-model="location_lat" type="number" step="0.000001" required />
               </div>
               <div class="input-group">
                 <label for="lng">Longitud</label>
-                <input id="lng" v-model="location_lng" type="number" step="0.000001" placeholder="-4.421636" required />
+                <input id="lng" v-model="location_lng" type="number" step="0.000001" required />
               </div>
             </div>
-
+ 
             <button type="button" class="ghost-btn" @click="searchLocation" :disabled="searchingLocation">
               {{ searchingLocation ? 'Buscando ubicación...' : 'Buscar ubicación en mapa' }}
             </button>
-
+ 
             <p v-if="locationSearchError" class="msg error">{{ locationSearchError }}</p>
-
+ 
             <div v-if="mapEmbedUrl" class="map-wrapper">
-              <iframe
-                title="Mapa del torneo"
-                :src="mapEmbedUrl"
-                loading="lazy"
-                referrerpolicy="no-referrer-when-downgrade"
-              />
+              <iframe title="Mapa del torneo" :src="mapEmbedUrl" loading="lazy" referrerpolicy="no-referrer-when-downgrade" />
             </div>
           </template>
         </fieldset>
-
-        <!-- 4) Visibilidad -->
+ 
         <fieldset>
           <legend>Privacidad</legend>
-
+ 
           <div class="input-group">
             <label for="visibility">Visibilidad</label>
             <select id="visibility" v-model="visibility" required>
-              <option value="public">Público (se puede unir quien quiera)</option>
-              <option value="private">Privado (solo con código o QR)</option>
+              <option value="public">Público</option>
+              <option value="private">Privado (código)</option>
             </select>
           </div>
-
+ 
           <div v-if="visibility === 'private'" class="input-group">
             <label for="privateCode">Código privado (opcional)</label>
-            <input
-              id="privateCode"
-              v-model.trim="privateCode"
-              placeholder="Si lo dejas vacío se genera automáticamente"
-            />
-            <small class="help">Solo letras y números, entre 6 y 16 caracteres.</small>
+            <input id="privateCode" v-model.trim="privateCode" placeholder="si vacío se genera" />
           </div>
         </fieldset>
-
+ 
         <p v-if="errorMessage" class="msg error">{{ errorMessage }}</p>
         <p v-if="successMessage" class="msg success">{{ successMessage }}</p>
-
+ 
         <button type="submit" class="submit-btn" :disabled="loading">
           {{ loading ? 'Creando torneo...' : 'Crear torneo' }}
         </button>
       </form>
-
+ 
       <section v-if="createdTournamentId" class="result-box">
         <h3>Torneo creado</h3>
+ 
         <p v-if="createdPrivateCode">
           Código privado: <strong>{{ createdPrivateCode }}</strong>
         </p>
-
+        <p v-if="createdPrivateCode" class="security-note">
+          Comparte el código por canal privado. El enlace/QR ya no incluye el código.
+        </p>
+ 
         <p v-if="createdTournamentLink">
           Enlace directo:
-          <a :href="createdTournamentLink" target="_blank" rel="noopener noreferrer">
-            {{ createdTournamentLink }}
-          </a>
+          <a :href="createdTournamentLink" target="_blank" rel="noopener noreferrer">{{ createdTournamentLink }}</a>
         </p>
-
-        <img
-          v-if="qrImageUrl"
-          class="qr-image"
-          :src="qrImageUrl"
-          alt="QR de acceso al torneo privado"
-        />
-
-        <router-link class="open-link" :to="createdTournamentPath">
-          Abrir torneo
-        </router-link>
+ 
+        <img v-if="qrImageUrl" class="qr-image" :src="qrImageUrl" alt="QR del torneo" />
+ 
+        <router-link class="open-link" :to="createdTournamentPath">Abrir torneo</router-link>
       </section>
     </article>
   </section>
 </template>
-
+ 
 <script setup>
 import { ref, computed, watch } from 'vue'
 import api from '../services/api'
-
+ 
+const ACCESS_CODE_STORAGE_KEY = 'tourneyhub_private_codes'
+ 
 const sportsPopular = [
   { value: 'Fútbol', label: 'Fútbol' },
   { value: 'Baloncesto', label: 'Baloncesto' },
@@ -210,7 +186,7 @@ const sportsPopular = [
   { value: 'Pádel', label: 'Pádel' },
   { value: 'Voleibol', label: 'Voleibol' }
 ]
-
+ 
 const esportsPopular = [
   { value: 'Fortnite', label: 'Fortnite' },
   { value: 'EA Sports FC', label: 'FIFA / EA FC' },
@@ -218,20 +194,28 @@ const esportsPopular = [
   { value: 'Valorant', label: 'Valorant' },
   { value: 'Counter-Strike 2', label: 'Counter-Strike 2' }
 ]
-
+ 
 function getTodayLocalYmd() {
   const d = new Date()
   d.setMinutes(d.getMinutes() - d.getTimezoneOffset())
   return d.toISOString().slice(0, 10)
 }
-
+ 
+function saveAccessCodeForTournament(tournamentId, code) {
+  try {
+    const raw = sessionStorage.getItem(ACCESS_CODE_STORAGE_KEY)
+    const map = raw ? JSON.parse(raw) : {}
+    map[String(tournamentId)] = code
+    sessionStorage.setItem(ACCESS_CODE_STORAGE_KEY, JSON.stringify(map))
+  } catch {}
+}
+ 
 const todayYmd = getTodayLocalYmd()
-
-// Form state
-const category = ref('sports') // -> backend type
+ 
+const category = ref('sports')
 const selectedDiscipline = ref('')
 const customDiscipline = ref('')
-
+ 
 const name = ref('')
 const description = ref('')
 const max_teams = ref(8)
@@ -239,78 +223,49 @@ const format = ref('single_elim')
 const start_date = ref(todayYmd)
 const start_time = ref('18:00')
 const prize = ref('')
-
+ 
 const location_name = ref('')
 const location_address = ref('')
 const location_lat = ref('')
 const location_lng = ref('')
 const searchingLocation = ref(false)
 const locationSearchError = ref('')
-
+ 
 const visibility = ref('public')
 const privateCode = ref('')
-
+ 
 const loading = ref(false)
 const errorMessage = ref('')
 const successMessage = ref('')
-
+ 
 const createdTournamentId = ref(null)
 const createdPrivateCode = ref('')
-
-const disciplineOptions = computed(() => {
-  return category.value === 'esports' ? esportsPopular : sportsPopular
-})
-
+ 
+const disciplineOptions = computed(() => category.value === 'esports' ? esportsPopular : sportsPopular)
+ 
 const resolvedGame = computed(() => {
-  if (selectedDiscipline.value === 'custom') {
-    return customDiscipline.value.trim()
-  }
+  if (selectedDiscipline.value === 'custom') return customDiscipline.value.trim()
   return selectedDiscipline.value.trim()
 })
-
+ 
 const mapEmbedUrl = computed(() => {
   const lat = Number(location_lat.value)
   const lng = Number(location_lng.value)
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return ''
-
   const delta = 0.01
-  const left = lng - delta
-  const right = lng + delta
-  const top = lat + delta
-  const bottom = lat - delta
-  const bbox = `${left},${bottom},${right},${top}`
-  const marker = `${lat},${lng}`
-
-  return `https://www.openstreetmap.org/export/embed.html?bbox=${encodeURIComponent(bbox)}&layer=mapnik&marker=${encodeURIComponent(marker)}`
+  const bbox = `${lng - delta},${lat - delta},${lng + delta},${lat + delta}`
+  return `https://www.openstreetmap.org/export/embed.html?bbox=${encodeURIComponent(bbox)}&layer=mapnik&marker=${encodeURIComponent(`${lat},${lng}`)}`
 })
-
-const createdTournamentPath = computed(() => {
-  if (!createdTournamentId.value) return ''
-  const codePart = createdPrivateCode.value
-    ? `?code=${encodeURIComponent(createdPrivateCode.value)}`
-    : ''
-  return `/tournaments/${createdTournamentId.value}${codePart}`
-})
-
-const createdTournamentLink = computed(() => {
-  if (!createdTournamentId.value) return ''
-  const codePart = createdPrivateCode.value
-    ? `?code=${encodeURIComponent(createdPrivateCode.value)}`
-    : ''
-  return `${window.location.origin}/tournaments/${createdTournamentId.value}${codePart}`
-})
-
-const qrImageUrl = computed(() => {
-  if (!createdTournamentLink.value || !createdPrivateCode.value) return ''
-  return `https://quickchart.io/qr?size=260&text=${encodeURIComponent(createdTournamentLink.value)}`
-})
-
+ 
+const createdTournamentPath = computed(() => createdTournamentId.value ? `/tournaments/${createdTournamentId.value}` : '')
+const createdTournamentLink = computed(() => createdTournamentId.value ? `${window.location.origin}/tournaments/${createdTournamentId.value}` : '')
+const qrImageUrl = computed(() => createdTournamentLink.value ? `https://quickchart.io/qr?size=260&text=${encodeURIComponent(createdTournamentLink.value)}` : '')
+ 
 watch(category, (newValue) => {
-  // reset dependencia de categoría
   selectedDiscipline.value = ''
   customDiscipline.value = ''
   locationSearchError.value = ''
-
+ 
   if (newValue === 'esports') {
     location_name.value = 'Online'
     location_address.value = 'Online'
@@ -321,99 +276,73 @@ watch(category, (newValue) => {
     location_address.value = ''
   }
 })
-
+ 
 async function searchLocation() {
   locationSearchError.value = ''
-
-  const q = [location_name.value, location_address.value]
-    .map((s) => String(s || '').trim())
-    .filter(Boolean)
-    .join(', ')
-
+  const q = [location_name.value, location_address.value].map((s) => String(s || '').trim()).filter(Boolean).join(', ')
   if (!q) {
-    locationSearchError.value = 'Escribe al menos el nombre del lugar para buscar en el mapa.'
+    locationSearchError.value = 'Escribe al menos el nombre del lugar.'
     return
   }
-
+ 
   searchingLocation.value = true
   try {
     const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`
     const res = await fetch(url)
     const data = await res.json()
-
+ 
     if (!Array.isArray(data) || data.length === 0) {
-      locationSearchError.value = 'No se encontró esa ubicación. Ajusta el texto y prueba de nuevo.'
+      locationSearchError.value = 'No se encontró esa ubicación.'
       return
     }
-
+ 
     location_lat.value = Number(data[0].lat).toFixed(6)
     location_lng.value = Number(data[0].lon).toFixed(6)
   } catch {
-    locationSearchError.value = 'No se pudo consultar el mapa en este momento.'
+    locationSearchError.value = 'No se pudo consultar el mapa.'
   } finally {
     searchingLocation.value = false
   }
 }
-
+ 
 function validateBeforeSubmit() {
-  if (!resolvedGame.value) {
-    return 'Selecciona un deporte/juego o escribe uno personalizado.'
-  }
-
-  if (name.value.trim().length < 3) {
-    return 'El nombre del torneo debe tener al menos 3 caracteres.'
-  }
-
-  if (description.value.trim().length < 10) {
-    return 'La descripción debe tener al menos 10 caracteres.'
-  }
-
-  if (!start_date.value || start_date.value < todayYmd) {
-    return 'La fecha de inicio no puede ser anterior a hoy.'
-  }
-
-  if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(start_time.value)) {
-    return 'La hora de inicio no es válida.'
-  }
-
+  if (!resolvedGame.value) return 'Selecciona un deporte/juego.'
+  if (name.value.trim().length < 3) return 'El nombre debe tener al menos 3 caracteres.'
+  if (description.value.trim().length < 10) return 'La descripción debe tener al menos 10 caracteres.'
+  if (!start_date.value || start_date.value < todayYmd) return 'La fecha no puede ser anterior a hoy.'
+  if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(start_time.value)) return 'Hora no válida.'
+ 
   if (category.value === 'sports') {
-    if (!location_name.value.trim()) {
-      return 'Para deportes debes indicar el lugar del torneo.'
-    }
-
+    if (!location_name.value.trim()) return 'Debes indicar el lugar.'
     const lat = Number(location_lat.value)
     const lng = Number(location_lng.value)
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-      return 'Para deportes debes indicar coordenadas válidas (lat/lng).'
-    }
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return 'Debes indicar lat/lng válidas.'
   }
-
+ 
   if (visibility.value === 'private' && privateCode.value.trim()) {
     const clean = privateCode.value.trim().replace(/[^a-zA-Z0-9]/g, '')
-    if (clean.length < 6 || clean.length > 16) {
-      return 'El código privado debe tener entre 6 y 16 caracteres alfanuméricos.'
-    }
+    if (clean.length < 6 || clean.length > 16) return 'El código privado debe tener entre 6 y 16 caracteres.'
   }
-
+ 
   return ''
 }
-
+ 
 async function createTournament() {
   loading.value = true
   errorMessage.value = ''
   successMessage.value = ''
   createdTournamentId.value = null
   createdPrivateCode.value = ''
-
+ 
   const validationError = validateBeforeSubmit()
   if (validationError) {
     errorMessage.value = validationError
     loading.value = false
     return
   }
-
+ 
   const isEsports = category.value === 'esports'
-
+ 
   const payload = {
     name: name.value.trim(),
     description: description.value.trim(),
@@ -432,15 +361,19 @@ async function createTournament() {
     location_lat: isEsports ? null : Number(location_lat.value),
     location_lng: isEsports ? null : Number(location_lng.value)
   }
-
+ 
   try {
     const res = await api.post('/tournaments', payload)
 
     createdTournamentId.value = res.data?.id || null
     createdPrivateCode.value = res.data?.private_access_code || ''
-
+ 
+    if (createdTournamentId.value && createdPrivateCode.value) {
+      saveAccessCodeForTournament(createdTournamentId.value, createdPrivateCode.value)
+    }
+ 
     successMessage.value = createdPrivateCode.value
-      ? 'Torneo privado creado. Guarda el código y comparte el QR.'
+      ? 'Torneo privado creado. Código guardado en esta sesión.'
       : 'Torneo creado correctamente.'
   } catch (err) {
     errorMessage.value = err.response?.data?.error || 'Error al crear el torneo.'
@@ -637,6 +570,12 @@ textarea {
   border-radius: 8px;
   padding: 0.45rem 0.7rem;
   font-weight: 700;
+}
+
+.security-note {
+  margin-top: 0.25rem;
+  color: #7c2d12;
+  font-size: 0.9rem;
 }
 
 @media (max-width: 760px) {

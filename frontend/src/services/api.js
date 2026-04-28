@@ -17,9 +17,17 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      // token expirado o inválido
+      // Evita desincronización store/localStorage
       localStorage.removeItem('token')
+
+      // Forzar recarga a login para resetear estado reactivo
+      const currentPath = window.location.pathname
+      if (currentPath !== '/login') {
+        const redirect = encodeURIComponent(`${window.location.pathname}${window.location.search}`)
+        window.location.assign(`/login?redirect=${redirect}`)
+      }
     }
+
     return Promise.reject(error)
   }
 )
