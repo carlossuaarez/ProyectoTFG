@@ -84,13 +84,14 @@ const otpCode = ref('')
 const loading = ref(false)
 const errorMessage = ref('')
 const googleError = ref('')
-const step = ref('credentials')
 
 const googleButtonRef = ref(null)
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || ''
 
 const authStore = useAuthStore()
 const { pending2fa } = storeToRefs(authStore)
+const step = ref(pending2fa.value?.challengeId ? 'otp' : 'credentials')
+
 const router = useRouter()
 const route = useRoute()
 
@@ -208,6 +209,11 @@ function resolvePostLoginPath() {
 }
 
 onMounted(() => {
+  // Si venimos de registro con challenge 2FA pendiente, abre directamente OTP
+  if (pending2fa.value?.challengeId) {
+    step.value = 'otp'
+  }
+
   initGoogleButton()
 })
 </script>

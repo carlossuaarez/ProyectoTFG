@@ -72,10 +72,11 @@
 <script setup>
 import { ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import api from '../services/api'
+import { useAuthStore } from '../stores/auth'
 
 const router = useRouter()
 const route = useRoute()
+const authStore = useAuthStore()
 
 const username = ref('')
 const email = ref('')
@@ -93,6 +94,14 @@ function validateUsername(value) {
 function validatePassword(value) {
   // mínimo 8, al menos una minúscula, una mayúscula y un número
   return /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/.test(value)
+}
+
+function resolvePostRegisterPath() {
+  const redirect = route.query.redirect
+  if (typeof redirect === 'string' && redirect.startsWith('/')) {
+    return redirect
+  }
+  return '/tournaments'
 }
 
 async function handleRegister() {
@@ -123,33 +132,26 @@ async function handleRegister() {
   }
 
   try {
-    await api.post('/register', {
-      username: cleanUsername,
-      email: cleanEmail,
-      password: password.value
-    })
+    const result = await authStore.register(cleanUsername, cleanEmail, password.value)
 
-    successMessage.value = 'Registro completado. Redirigiendo a inicio de sesión...'
-
-    const redirect = route.query.redirect
-    setTimeout(() => {
-      router.push({
-        path: '/login',
-        query: {
-          ...(typeof redirect === 'string' ? { redirect } : {}),
-          registered: '1'
-        }
-      })
-    }, 900)
-  } catch (err) {
-    const status = err.response?.status
-    if (status === 409) {
-      errorMessage.value = 'Ese usuario o email ya existe.'
-    } else if (status === 400) {
-      errorMessage.value = err.response?.data?.error || 'Datos de registro no válidos.'
-    } else {
-      errorMessage.value = 'No se pudo completar el registro. Inténtalo de nuevo.'
+    if (!result.success) {
+      errorMessage.value = result.message || 'No se pudo completar el registro.'
+      loading.value = false
+      return
     }
+
+    // Registro + login automático completado
+    if (!result.requires2fa) {
+      router.push(resolvePostRegisterPath())
+      return
+    }
+
+    // Si hay 2FA, va directo a login en paso OTP (sin reescribir credenciales)
+    successMessage.value = 'Cuenta creada. Verifica el código 2FA para completar el acceso.'
+    router.push({
+      path: '/login',
+      query: typeof route.query.redirect === 'string' ? { redirect: route.query.redirect } : {},
+    })
   } finally {
     loading.value = false
   }

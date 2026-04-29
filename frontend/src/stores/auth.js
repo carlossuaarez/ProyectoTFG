@@ -144,14 +144,18 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  // Registro + intento de login automático
   async function register(username, email, password) {
     try {
       await api.post('/register', { username, email, password })
-      alert('Registro exitoso, ahora inicia sesión')
-      router.push('/login')
+
+      // Reutiliza el mismo flujo de login (incluye soporte 2FA)
+      return await login(email, password)
     } catch (err) {
-      alert('Error: ' + (err.response?.data?.error || 'No se pudo registrar'))
-      throw err
+      return {
+        success: false,
+        message: err.response?.data?.error || 'No se pudo completar el registro.',
+      }
     }
   }
 
