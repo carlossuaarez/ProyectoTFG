@@ -101,7 +101,6 @@ class TournamentController
         $prize = trim((string)($data['prize'] ?? ''));
 
         $visibility = $this->normalizeVisibility((string)($data['visibility'] ?? 'public'));
-        $requestedAccessCode = trim((string)($data['access_code'] ?? ''));
 
         $locationName = trim((string)($data['location_name'] ?? ''));
         $locationAddress = trim((string)($data['location_address'] ?? ''));
@@ -160,20 +159,17 @@ class TournamentController
             }
         }
 
-        // Privado: generar o validar código
+        // Privado: SIEMPRE generar código automático único
         $accessCodePlain = null;
         $accessCodeHash = null;
         $accessCodeLast4 = null;
 
         if ($visibility === 'private') {
-            $accessCodePlain = $this->sanitizeAccessCode($requestedAccessCode);
-
-            if ($accessCodePlain === '') {
-                $accessCodePlain = $this->generateAccessCode(8);
-            }
-
-            if (strlen($accessCodePlain) < 6 || strlen($accessCodePlain) > 16) {
-                return $this->json($res, ['error' => 'El código privado debe tener entre 6 y 16 caracteres alfanuméricos'], 400);
+            try {
+                $accessCodePlain = $this->generateUniqueAccessCode(8);
+            } catch (Throwable $e) {
+                error_log('private code generation error: ' . $e->getMessage());
+                return $this->json($res, ['error' => 'No se pudo generar el código privado'], 500);
             }
 
             $accessCodeHash = password_hash($accessCodePlain, PASSWORD_DEFAULT);
@@ -228,7 +224,7 @@ class TournamentController
         }
     }
 
-    // Join: para privados exige access_code en body
+    // Join: para privados exige access_code en body/header/query
     public function join(Request $req, Response $res, array $args): Response
     {
         $user = (array)$req->getAttribute('user');
@@ -357,9 +353,10 @@ class TournamentController
         return (string)preg_replace('/[^a-zA-Z0-9]/', '', strtoupper(trim($code)));
     }
 
+    // Evita vocales para reducir riesgo de palabras obscenas
     private function generateAccessCode(int $length = 8): string
     {
-        $alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+        $alphabet = 'BCDFGHJKLMNPQRSTVWXYZ23456789';
         $max = strlen($alphabet) - 1;
         $result = '';
 
@@ -368,6 +365,39 @@ class TournamentController
         }
 
         return $result;
+    }
+
+    // Garantiza que no se repite contra códigos privados ya existentes
+    private function generateUniqueAccessCode(int $length = 8, int $maxAttempts = 40): string
+    {
+        for ($i = 0; $i < $maxAttempts; $i++) {
+            $candidate = $this->generateAccessCode($length);
+            if ($this->isAccessCodeUnique($candidate)) {
+                return $candidate;
+            }
+        }
+
+        throw new RuntimeException('No se pudo generar un código privado único');
+    }
+
+    private function isAccessCodeUnique(string $candidate): bool
+    {
+        $stmt = $this->db->query("
+            SELECT access_code_hash
+            FROM tournaments
+            WHERE COALESCE(visibility, 'public') = 'private'
+              AND access_code_hash IS NOT NULL
+        ");
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        foreach ($rows as $row) {
+            $hash = (string)($row['access_code_hash'] ?? '');
+            if ($hash !== '' && password_verify($candidate, $hash)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function isValidDateYmd(string $date): bool
