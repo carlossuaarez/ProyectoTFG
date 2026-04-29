@@ -107,19 +107,6 @@
         <p>No hay torneos que coincidan con los filtros.</p>
       </div>
     </div>
-
-    <!-- Modal código privado -->
-    <div v-if="privateModalOpen" class="modal-backdrop">
-      <div class="modal-card">
-        <h3>Torneo privado</h3>
-        <p>Introduce el código para abrir el torneo privado.</p>
-        <input v-model.trim="privateCodeInput" placeholder="Código de acceso" />
-        <div class="modal-actions">
-          <button type="button" class="ghost-btn" @click="closePrivateModal">Cancelar</button>
-          <button type="button" class="primary-btn" @click="confirmPrivateCode">Acceder</button>
-        </div>
-      </div>
-    </div>
   </section>
 </template>
 
@@ -137,27 +124,6 @@ const error = ref('')
 const searchTerm = ref('')
 const typeFilter = ref('all')
 const visibilityFilter = ref('all')
-
-const privateModalOpen = ref(false)
-const privateCodeInput = ref('')
-const selectedPrivateTournament = ref(null)
-
-const ACCESS_CODE_STORAGE_KEY = 'tourneyhub_private_codes'
-
-function readCodeMap() {
-  try {
-    const raw = sessionStorage.getItem(ACCESS_CODE_STORAGE_KEY)
-    return raw ? JSON.parse(raw) : {}
-  } catch {
-    return {}
-  }
-}
-
-function saveCodeForTournament(tournamentId, code) {
-  const map = readCodeMap()
-  map[String(tournamentId)] = code
-  sessionStorage.setItem(ACCESS_CODE_STORAGE_KEY, JSON.stringify(map))
-}
 
 async function fetchAdminTournaments() {
   loading.value = true
@@ -212,29 +178,17 @@ function formatDateTime(date, time) {
 }
 
 function viewTournament(tournament) {
-  if ((tournament.visibility || 'public') === 'private') {
-    selectedPrivateTournament.value = tournament
-    privateCodeInput.value = ''
-    privateModalOpen.value = true
+  const isPrivate = (tournament.visibility || 'public') === 'private'
+
+  if (isPrivate) {
+    router.push({
+      path: `/tournaments/${tournament.id}`,
+      query: { admin_preview: '1' },
+    })
     return
   }
+
   router.push(`/tournaments/${tournament.id}`)
-}
-
-function closePrivateModal() {
-  privateModalOpen.value = false
-  privateCodeInput.value = ''
-  selectedPrivateTournament.value = null
-}
-
-function confirmPrivateCode() {
-  const code = privateCodeInput.value.trim().replace(/[^a-zA-Z0-9]/g, '').toUpperCase()
-  if (!code || !selectedPrivateTournament.value) return
-
-  saveCodeForTournament(selectedPrivateTournament.value.id, code)
-  const targetId = selectedPrivateTournament.value.id
-  closePrivateModal()
-  router.push(`/tournaments/${targetId}`)
 }
 
 async function deleteTournament(id) {
@@ -383,52 +337,6 @@ tbody td {
   font-weight: 600;
 }
 .empty { text-align: center; padding: 1.2rem; color: #64748b; }
-
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(15, 23, 42, 0.45);
-  display: grid;
-  place-items: center;
-  z-index: 120;
-}
-.modal-card {
-  width: min(420px, 92vw);
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  padding: 1rem;
-}
-.modal-card h3 { margin-bottom: 0.35rem; }
-.modal-card p { color: #64748b; margin-bottom: 0.65rem; }
-.modal-card input {
-  width: 100%;
-  border: 1px solid #dbe1ea;
-  border-radius: 10px;
-  padding: 0.62rem 0.72rem;
-}
-.modal-actions {
-  margin-top: 0.75rem;
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.5rem;
-}
-.ghost-btn {
-  border: 1px solid #dbe1ea;
-  border-radius: 8px;
-  padding: 0.45rem 0.75rem;
-  background: #fff;
-  cursor: pointer;
-}
-.primary-btn {
-  border: none;
-  border-radius: 8px;
-  padding: 0.45rem 0.75rem;
-  background: #0284c7;
-  color: #fff;
-  font-weight: 700;
-  cursor: pointer;
-}
 
 @media (max-width: 900px) {
   .filters-panel { grid-template-columns: 1fr; }

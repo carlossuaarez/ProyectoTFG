@@ -1,23 +1,23 @@
 <template>
   <section v-if="loading" class="state">Cargando torneo...</section>
- 
+
   <section v-else-if="requiresAccessCode && !tournament" class="state state-private">
     <h2>Este torneo es privado</h2>
     <p>Introduce el código de acceso para continuar.</p>
- 
+
     <div class="private-unlock">
       <input v-model.trim="accessCodeInput" placeholder="Código de acceso" autocomplete="one-time-code" />
       <button type="button" @click="unlockPrivateTournament">Acceder</button>
     </div>
- 
+
     <p v-if="error" class="msg error">{{ error }}</p>
   </section>
- 
+
   <section v-else-if="error" class="state state-error">
     <p>{{ error }}</p>
     <button type="button" @click="fetchTournament">Reintentar</button>
   </section>
- 
+
   <section v-else-if="tournament" class="detail-page">
     <article class="main-card">
       <div class="head">
@@ -28,11 +28,11 @@
           {{ tournament.visibility === 'private' ? 'Privado' : 'Público' }}
         </span>
       </div>
- 
+
       <h1>{{ tournament.name }}</h1>
       <p class="game">{{ tournament.game }}</p>
       <p class="description">{{ tournament.description || 'Sin descripción.' }}</p>
- 
+
       <div class="info-grid">
         <div class="info-item">
           <span>Inicio</span>
@@ -51,7 +51,7 @@
           <strong>{{ tournament.prize || 'Sin premio' }}</strong>
         </div>
       </div>
- 
+
       <div class="location-box">
         <h3>Ubicación</h3>
         <p v-if="isOnline"><strong>Online</strong></p>
@@ -69,16 +69,16 @@
         </template>
       </div>
     </article>
- 
+
     <article class="side-card">
       <h2>Equipos inscritos</h2>
- 
+
       <ul v-if="teams.length > 0" class="team-list">
         <li v-for="team in teams" :key="team.id">{{ team.name }}</li>
       </ul>
       <p v-else class="empty">Todavía no hay equipos inscritos.</p>
- 
-      <div v-if="token && !alreadyJoined" class="join-box">
+
+      <div v-if="canJoin" class="join-box">
         <h3>Inscribir equipo</h3>
         <div class="join-row">
           <input v-model.trim="teamName" placeholder="Nombre del equipo" />
@@ -86,52 +86,64 @@
             {{ joinLoading ? 'Inscribiendo...' : 'Inscribir' }}
           </button>
         </div>
- 
+
         <div v-if="tournament.visibility === 'private'" class="private-note">
           Torneo privado: usando código guardado en esta sesión.
         </div>
- 
+
         <p v-if="joinError" class="msg error">{{ joinError }}</p>
         <p v-if="joinSuccess" class="msg success">{{ joinSuccess }}</p>
       </div>
- 
+
+      <p v-else-if="isAdminPreview && tournament.visibility === 'private'" class="admin-preview-note">
+        Vista de administración: puedes consultar la información del torneo privado sin código, pero no inscribirte.
+      </p>
+
       <p v-else-if="!token" class="login-tip">
         Inicia sesión para inscribir un equipo en este torneo.
       </p>
     </article>
   </section>
 </template>
- 
+
 <script setup>
 import { ref, onMounted, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { storeToRefs } from 'pinia'
 import api from '../services/api'
- 
+
 const route = useRoute()
 const router = useRouter()
- 
+
 const authStore = useAuthStore()
-const { token } = storeToRefs(authStore)
- 
+const { token, isAdmin } = storeToRefs(authStore)
+
 const tournament = ref(null)
 const teams = ref([])
- 
+
 const loading = ref(true)
 const error = ref('')
- 
+
 const requiresAccessCode = ref(false)
 const accessCodeInput = ref('')
- 
+
 const teamName = ref('')
 const joinLoading = ref(false)
 const joinError = ref('')
 const joinSuccess = ref('')
 const alreadyJoined = ref(false)
- 
+
 const ACCESS_CODE_STORAGE_KEY = 'tourneyhub_private_codes'
- 
+
+const isAdminPreview = computed(() => route.query.admin_preview === '1' && isAdmin.value === true)
+
+const canJoin = computed(() => {
+  if (!token.value || alreadyJoined.value) return false
+  if (isAdminPreview.value && tournament.value?.visibility === 'private') return false
+  return true
+})
+
 function readCodeMap() {
   try {
     const raw = sessionStorage.getItem(ACCESS_CODE_STORAGE_KEY)
@@ -140,27 +152,27 @@ function readCodeMap() {
     return {}
   }
 }
- 
+
 function saveAccessCodeForTournament(tournamentId, code) {
   const map = readCodeMap()
   map[String(tournamentId)] = code
   sessionStorage.setItem(ACCESS_CODE_STORAGE_KEY, JSON.stringify(map))
 }
- 
+
 function getAccessCodeForTournament(tournamentId) {
   const map = readCodeMap()
   return String(map[String(tournamentId)] || '')
 }
- 
+
 const isOnline = computed(() => Number(tournament.value?.is_online || 0) === 1)
- 
+
 const mapEmbedUrl = computed(() => {
   if (!tournament.value || isOnline.value) return ''
- 
+
   const lat = Number(tournament.value.location_lat)
   const lng = Number(tournament.value.location_lng)
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return ''
- 
+
   const delta = 0.01
   const left = lng - delta
   const right = lng + delta
@@ -168,44 +180,47 @@ const mapEmbedUrl = computed(() => {
   const bottom = lat - delta
   const bbox = `${left},${bottom},${right},${top}`
   const marker = `${lat},${lng}`
- 
+
   return `https://www.openstreetmap.org/export/embed.html?bbox=${encodeURIComponent(bbox)}&layer=mapnik&marker=${encodeURIComponent(marker)}`
 })
- 
+
 function getQueryAccessCode() {
   const code = route.query.code
   return typeof code === 'string' ? code.trim() : ''
 }
- 
+
 function getCurrentAccessCode() {
+  // En modo vista admin no usamos código, forzamos bypass por rol admin en backend.
+  if (isAdminPreview.value) return ''
+
   const fromSession = getAccessCodeForTournament(route.params.id)
   if (fromSession) return fromSession
   return getQueryAccessCode()
 }
- 
+
 async function fetchTournament() {
   loading.value = true
   error.value = ''
   joinError.value = ''
   joinSuccess.value = ''
- 
+
   try {
     const queryCode = getQueryAccessCode()
-    if (queryCode) {
+    if (queryCode && !isAdminPreview.value) {
       saveAccessCodeForTournament(route.params.id, queryCode)
     }
- 
+
     const code = getCurrentAccessCode()
     const config = code
       ? { headers: { 'X-Tournament-Code': code } }
       : undefined
- 
+
     const res = await api.get(`/tournaments/${route.params.id}`, config)
     tournament.value = res.data
     teams.value = res.data.teams || []
     requiresAccessCode.value = false
     accessCodeInput.value = ''
- 
+
     // Si venía por query, lo limpiamos para no dejarlo en URL/historial
     if (queryCode) {
       const newQuery = { ...route.query }
@@ -215,7 +230,7 @@ async function fetchTournament() {
   } catch (err) {
     tournament.value = null
     teams.value = []
- 
+
     if (err.response?.status === 403 && err.response?.data?.requires_access_code) {
       requiresAccessCode.value = true
       error.value = err.response?.data?.error || 'Torneo privado: introduce código.'
@@ -228,18 +243,18 @@ async function fetchTournament() {
     loading.value = false
   }
 }
- 
+
 function unlockPrivateTournament() {
   const code = accessCodeInput.value.trim().replace(/[^a-zA-Z0-9]/g, '').toUpperCase()
   if (!code) {
     error.value = 'Introduce un código de acceso.'
     return
   }
- 
+
   saveAccessCodeForTournament(route.params.id, code)
   fetchTournament()
 }
- 
+
 async function joinTournament() {
   const name = teamName.value.trim()
   if (!name) {
@@ -247,14 +262,20 @@ async function joinTournament() {
     joinSuccess.value = ''
     return
   }
- 
+
+  if (isAdminPreview.value && tournament.value?.visibility === 'private') {
+    joinError.value = 'En vista admin no está permitida la inscripción en torneos privados.'
+    joinSuccess.value = ''
+    return
+  }
+
   joinLoading.value = true
   joinError.value = ''
   joinSuccess.value = ''
- 
+
   try {
     const payload = { team_name: name }
- 
+
     if (tournament.value?.visibility === 'private') {
       const code = getAccessCodeForTournament(route.params.id)
       if (!code) {
@@ -264,9 +285,9 @@ async function joinTournament() {
       }
       payload.access_code = code
     }
- 
+
     await api.post(`/tournaments/${route.params.id}/join`, payload)
- 
+
     joinSuccess.value = 'Equipo inscrito correctamente.'
     teamName.value = ''
     alreadyJoined.value = true
@@ -277,7 +298,7 @@ async function joinTournament() {
     joinLoading.value = false
   }
 }
- 
+
 function formatDateTime(date, time) {
   if (!date) return '-'
   const parsed = new Date(date)
@@ -286,14 +307,21 @@ function formatDateTime(date, time) {
   const hhmm = String(time || '00:00:00').slice(0, 5)
   return `${datePart} · ${hhmm}`
 }
- 
+
 watch(
   () => route.params.id,
   () => {
     fetchTournament()
   }
 )
- 
+
+watch(
+  () => route.query.admin_preview,
+  () => {
+    fetchTournament()
+  }
+)
+
 onMounted(fetchTournament)
 </script>
 
@@ -481,6 +509,17 @@ h1 {
   border: 1px solid #fed7aa;
   padding: 0.35rem 0.5rem;
   border-radius: 8px;
+}
+
+.admin-preview-note {
+  margin-top: 0.75rem;
+  border: 1px solid #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+  border-radius: 10px;
+  padding: 0.65rem 0.75rem;
+  font-size: 0.88rem;
+  font-weight: 600;
 }
 
 .login-tip {

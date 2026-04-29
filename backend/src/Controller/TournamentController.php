@@ -1,6 +1,8 @@
 <?php
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
+use Firebase\JWT\JWT;
+use Firebase\JWT\Key;
 
 class TournamentController
 {
@@ -53,12 +55,14 @@ class TournamentController
 
             $visibility = $this->normalizeVisibility((string)($tournament['visibility'] ?? 'public'));
             $tournament['visibility'] = $visibility;
+            $adminPreview = false;
 
             if ($visibility === 'private') {
                 $code = $this->resolveAccessCodeFromRequest($req);
                 $hash = (string)($tournament['access_code_hash'] ?? '');
+                $adminPreview = $this->isAdminRequest($req);
 
-                if (!$this->verifyAccessCode($code, $hash)) {
+                if (!$adminPreview && !$this->verifyAccessCode($code, $hash)) {
                     return $this->json($res, [
                         'error' => 'Este torneo es privado. Introduce el código de acceso.',
                         'requires_access_code' => true
@@ -77,6 +81,9 @@ class TournamentController
 
             // Nunca devolver hash
             unset($tournament['access_code_hash']);
+
+            // Flag para frontend: vista admin sin código
+            $tournament['admin_preview'] = $adminPreview;
 
             return $this->json($res, $tournament);
         } catch (Throwable $e) {
@@ -384,6 +391,33 @@ class TournamentController
         }
 
         return null;
+    }
+
+    private function isAdminRequest(Request $req): bool
+    {
+        $authHeader = $req->getHeaderLine('Authorization');
+        if ($authHeader === '' || stripos($authHeader, 'Bearer ') !== 0) {
+            return false;
+        }
+
+        $token = trim(substr($authHeader, 7));
+        if ($token === '') {
+            return false;
+        }
+
+        try {
+            $secret = (string)($_ENV['JWT_SECRET'] ?? '');
+            if ($secret === '') {
+                return false;
+            }
+
+            $decoded = JWT::decode($token, new Key($secret, 'HS256'));
+            $payload = (array)$decoded;
+
+            return (($payload['role'] ?? '') === 'admin');
+        } catch (Throwable $e) {
+            return false;
+        }
     }
 
     private function resolveAccessCodeFromRequest(Request $req, array $body = []): string
