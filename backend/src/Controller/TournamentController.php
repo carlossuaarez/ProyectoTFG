@@ -224,6 +224,32 @@ class TournamentController
         }
     }
 
+    // Resolver código privado -> id de torneo para acceso rápido desde Home
+    public function resolvePrivateByCode(Request $req, Response $res): Response
+    {
+        $data = (array)$req->getParsedBody();
+        $code = $this->sanitizeAccessCode((string)($data['access_code'] ?? ''));
+
+        if ($code === '' || strlen($code) < 6 || strlen($code) > 16) {
+            return $this->json($res, ['error' => 'Código privado no válido'], 400);
+        }
+
+        try {
+            $tournament = $this->findPrivateTournamentByCode($code);
+
+            if (!$tournament) {
+                return $this->json($res, ['error' => 'Código privado incorrecto o torneo no encontrado'], 404);
+            }
+
+            return $this->json($res, [
+                'tournament_id' => (int)$tournament['id']
+            ]);
+        } catch (Throwable $e) {
+            error_log('resolve private code error: ' . $e->getMessage());
+            return $this->json($res, ['error' => 'No se pudo resolver el código privado'], 500);
+        }
+    }
+
     // Join: para privados exige access_code en body/header/query
     public function join(Request $req, Response $res, array $args): Response
     {
@@ -316,6 +342,48 @@ class TournamentController
             error_log('join tournament error: ' . $e->getMessage());
             return $this->json($res, ['error' => 'No se pudo completar la inscripción'], 500);
         }
+    }
+
+    private function findPrivateTournamentByCode(string $code): ?array
+    {
+        $last4 = substr($code, -4);
+
+        // Búsqueda rápida por últimos 4 caracteres
+        $stmt = $this->db->prepare("
+            SELECT id, access_code_hash
+            FROM tournaments
+            WHERE COALESCE(visibility, 'public') = 'private'
+              AND access_code_hash IS NOT NULL
+              AND access_code_last4 = ?
+            ORDER BY id DESC
+        ");
+        $stmt->execute([$last4]);
+        $candidates = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        foreach ($candidates as $row) {
+            if ($this->verifyAccessCode($code, (string)($row['access_code_hash'] ?? ''))) {
+                return $row;
+            }
+        }
+
+        // Fallback para torneos legacy sin access_code_last4 rellenado
+        $stmtLegacy = $this->db->query("
+            SELECT id, access_code_hash
+            FROM tournaments
+            WHERE COALESCE(visibility, 'public') = 'private'
+              AND access_code_hash IS NOT NULL
+              AND (access_code_last4 IS NULL OR access_code_last4 = '')
+            ORDER BY id DESC
+        ");
+        $legacyCandidates = $stmtLegacy->fetchAll(PDO::FETCH_ASSOC);
+
+        foreach ($legacyCandidates as $row) {
+            if ($this->verifyAccessCode($code, (string)($row['access_code_hash'] ?? ''))) {
+                return $row;
+            }
+        }
+
+        return null;
     }
 
     private function resolveAccessCodeFromRequest(Request $req, array $body = []): string

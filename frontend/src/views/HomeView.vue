@@ -13,6 +13,27 @@
         <router-link to="/create-tournament" class="btn btn-secondary">Crear torneo</router-link>
       </div>
 
+      <section class="private-access-card">
+        <h3>Entrar con código privado</h3>
+        <p>Si te han compartido un código, introdúcelo para abrir directamente ese torneo.</p>
+
+        <form class="private-access-form" @submit.prevent="resolvePrivateCode">
+          <input
+            v-model.trim="privateCodeInput"
+            type="text"
+            maxlength="16"
+            autocomplete="one-time-code"
+            placeholder="Ej: ENUESMM6"
+            :disabled="privateCodeLoading"
+          />
+          <button type="submit" :disabled="privateCodeLoading">
+            {{ privateCodeLoading ? 'Buscando...' : 'Acceder' }}
+          </button>
+        </form>
+
+        <p v-if="privateCodeError" class="private-msg error">{{ privateCodeError }}</p>
+      </section>
+
       <div class="stats-grid">
         <article>
           <strong>+120</strong>
@@ -62,7 +83,65 @@
   </section>
 </template>
 
-<script setup></script>
+<script setup>
+import { ref } from 'vue'
+import { useRouter } from 'vue-router'
+import api from '../services/api'
+
+const ACCESS_CODE_STORAGE_KEY = 'tourneyhub_private_codes'
+
+const router = useRouter()
+const privateCodeInput = ref('')
+const privateCodeLoading = ref(false)
+const privateCodeError = ref('')
+
+function sanitizeCode(value) {
+  return String(value || '').trim().replace(/[^a-zA-Z0-9]/g, '').toUpperCase()
+}
+
+function saveAccessCodeForTournament(tournamentId, code) {
+  try {
+    const raw = sessionStorage.getItem(ACCESS_CODE_STORAGE_KEY)
+    const map = raw ? JSON.parse(raw) : {}
+    map[String(tournamentId)] = code
+    sessionStorage.setItem(ACCESS_CODE_STORAGE_KEY, JSON.stringify(map))
+  } catch {}
+}
+
+async function resolvePrivateCode() {
+  privateCodeError.value = ''
+
+  const code = sanitizeCode(privateCodeInput.value)
+  if (!code || code.length < 6) {
+    privateCodeError.value = 'Introduce un código privado válido.'
+    return
+  }
+
+  privateCodeLoading.value = true
+  try {
+    const res = await api.post('/tournaments/private/resolve', { access_code: code })
+    const tournamentId = Number(res?.data?.tournament_id || 0)
+
+    if (!Number.isInteger(tournamentId) || tournamentId <= 0) {
+      privateCodeError.value = 'No se pudo resolver el torneo para ese código.'
+      return
+    }
+
+    saveAccessCodeForTournament(tournamentId, code)
+    await router.push(`/tournaments/${tournamentId}`)
+  } catch (err) {
+    if (err.response?.status === 404) {
+      privateCodeError.value = 'Código incorrecto o torneo no disponible.'
+    } else if (err.response?.status === 429) {
+      privateCodeError.value = 'Demasiados intentos. Espera un momento.'
+    } else {
+      privateCodeError.value = err.response?.data?.error || 'No se pudo validar el código privado.'
+    }
+  } finally {
+    privateCodeLoading.value = false
+  }
+}
+</script>
 
 <style scoped>
 .hero {
@@ -125,6 +204,65 @@
   background: #f8fafc;
   color: #0f172a;
   border: 1px solid var(--border);
+}
+
+.private-access-card {
+  margin-top: 1rem;
+  border: 1px solid #dbeafe;
+  background: #f8fbff;
+  border-radius: 12px;
+  padding: 0.85rem;
+}
+
+.private-access-card h3 {
+  margin: 0 0 0.35rem;
+  font-size: 1rem;
+}
+
+.private-access-card p {
+  margin: 0 0 0.55rem;
+  color: #475569;
+  max-width: none;
+}
+
+.private-access-form {
+  display: flex;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.private-access-form input {
+  flex: 1;
+  min-width: 180px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.58rem 0.7rem;
+  text-transform: uppercase;
+}
+
+.private-access-form button {
+  border: none;
+  border-radius: 10px;
+  background: #0ea5e9;
+  color: #fff;
+  font-weight: 700;
+  padding: 0.58rem 0.9rem;
+  cursor: pointer;
+}
+
+.private-access-form button:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.private-msg {
+  margin-top: 0.45rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.private-msg.error {
+  color: #b91c1c;
 }
 
 .stats-grid {
@@ -223,6 +361,10 @@
 
   .stats-grid {
     grid-template-columns: 1fr;
+  }
+
+  .private-access-form {
+    flex-direction: column;
   }
 }
 </style>

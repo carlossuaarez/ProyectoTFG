@@ -137,6 +137,14 @@ $tournamentJoinLimiter = new RateLimitMiddleware(
     }
 );
 
+$privateCodeResolveLimiter = new RateLimitMiddleware(
+    $db,
+    'tournament_private_resolve_ip',
+    30,
+    600,
+    fn(Request $r) => RateLimitMiddleware::extractClientIp($r)
+);
+
 // Rutas auth públicas
 $app->post('/api/register', [$authController, 'register']);
 $app->post('/api/login', [$authController, 'login'])
@@ -154,6 +162,9 @@ $app->post('/api/2fa/verify', [$authController, 'verify2fa'])
 $app->get('/api/tournaments', [$tournamentController, 'getAll']);
 $app->get('/api/tournaments/{id}', [$tournamentController, 'getById'])
     ->add($tournamentDetailLimiter);
+
+$app->post('/api/tournaments/private/resolve', [$tournamentController, 'resolvePrivateByCode'])
+    ->add($privateCodeResolveLimiter);
 
 // Rutas protegidas
 $app->group('/api', function ($group) use ($authController, $tournamentController, $adminController, $tournamentJoinLimiter) {
