@@ -47,6 +47,7 @@
         <thead>
           <tr>
             <th>Nombre</th>
+            <th>Creador</th>
             <th>Categoría</th>
             <th>Disciplina</th>
             <th>Inicio</th>
@@ -64,6 +65,10 @@
                 <strong>{{ t.name }}</strong>
                 <small>{{ shortDescription(t.description) }}</small>
               </div>
+            </td>
+
+            <td>
+              <span class="creator-cell">{{ creatorLabel(t) }}</span>
             </td>
 
             <td>
@@ -149,7 +154,7 @@ const filteredTournaments = computed(() => {
     .filter((t) => (visibilityFilter.value === 'all' ? true : t.visibility === visibilityFilter.value))
     .filter((t) => {
       if (!q) return true
-      const haystack = [t.name, t.game, t.description, t.location_name, t.location_address]
+      const haystack = [t.name, t.game, t.description, t.location_name, t.location_address, t.created_by_username]
         .map((v) => String(v || '').toLowerCase())
         .join(' ')
       return haystack.includes(q)
@@ -175,6 +180,14 @@ function formatDateTime(date, time) {
   const datePart = parsed.toLocaleDateString('es-ES')
   const hhmm = String(time || '00:00:00').slice(0, 5)
   return `${datePart} · ${hhmm}`
+}
+
+function creatorLabel(tournament) {
+  const username = String(tournament?.created_by_username || '').trim()
+  if (username) return `@${username}`
+
+  const id = Number(tournament?.created_by || 0)
+  return id > 0 ? `Usuario #${id}` : 'Desconocido'
 }
 
 function viewTournament(tournament) {
@@ -246,7 +259,7 @@ async function deleteTournament(id) {
   border-radius: 14px;
   overflow: auto;
 }
-table { width: 100%; border-collapse: collapse; min-width: 1120px; }
+table { width: 100%; border-collapse: collapse; min-width: 1240px; }
 thead th {
   text-align: left;
   background: #f8fafc;
@@ -264,6 +277,12 @@ tbody td {
 
 .name-cell { display: grid; gap: 0.2rem; }
 .name-cell small { color: #64748b; font-size: 0.82rem; }
+
+.creator-cell {
+  font-weight: 700;
+  color: #0f172a;
+  font-size: 0.9rem;
+}
 
 .location-cell { display: grid; gap: 0.2rem; }
 .location-cell small { color: #64748b; font-size: 0.8rem; }

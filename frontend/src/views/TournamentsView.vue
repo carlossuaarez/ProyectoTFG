@@ -93,7 +93,9 @@ function normalizeTournament(t) {
     max_teams: Number(t.max_teams || 0),
     location_name: t.location_name || '',
     is_online: Number(t.is_online || 0),
-    visibility: t.visibility || 'public'
+    visibility: t.visibility || 'public',
+    created_by: Number(t.created_by || 0),
+    created_by_username: String(t.created_by_username || '')
   }
 }
 
@@ -121,7 +123,9 @@ const filteredTournaments = computed(() => {
     .filter((t) => (filterFormat.value === 'all' ? true : t.format === filterFormat.value))
     .filter((t) => {
       if (!q) return true
-      const haystack = [t.name, t.game, t.description, t.location_name].map(normalizeText).join(' ')
+      const haystack = [t.name, t.game, t.description, t.location_name, t.created_by_username]
+        .map(normalizeText)
+        .join(' ')
       return haystack.includes(q)
     })
     .sort((a, b) => {

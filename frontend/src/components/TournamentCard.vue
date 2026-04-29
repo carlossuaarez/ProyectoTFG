@@ -11,6 +11,7 @@
 
     <h3>{{ tournament.name }}</h3>
     <p class="game">{{ tournament.game }}</p>
+    <p class="creator">Creado por: <strong>{{ creatorLabel }}</strong></p>
     <p class="description">{{ tournament.description || 'Sin descripción' }}</p>
 
     <div class="meta-grid">
@@ -37,11 +38,21 @@
 </template>
 
 <script setup>
-defineProps({
+import { computed } from 'vue'
+
+const props = defineProps({
   tournament: {
     type: Object,
     required: true
   }
+})
+
+const creatorLabel = computed(() => {
+  const username = String(props.tournament?.created_by_username || '').trim()
+  if (username) return `@${username}`
+
+  const createdBy = Number(props.tournament?.created_by || 0)
+  return createdBy > 0 ? `Usuario #${createdBy}` : 'Desconocido'
 })
 
 function formatDateTime(date, time) {
@@ -116,6 +127,12 @@ h3 {
 
 .game {
   color: var(--muted);
+  margin-bottom: 0.25rem;
+}
+
+.creator {
+  color: #334155;
+  font-size: 0.88rem;
   margin-bottom: 0.45rem;
 }
 

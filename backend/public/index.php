@@ -174,6 +174,7 @@ $app->group('/api', function ($group) use ($authController, $tournamentControlle
 
     // Torneos
     $group->post('/tournaments', [$tournamentController, 'create']);
+    $group->put('/tournaments/{id}', [$tournamentController, 'update']);
     $group->post('/tournaments/{id}/join', [$tournamentController, 'join'])->add($tournamentJoinLimiter);
 
     // Admin

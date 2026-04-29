@@ -54,6 +54,9 @@
             <div class="input-group">
               <label for="maxTeams">Nº máximo de equipos</label>
               <input id="maxTeams" v-model.number="max_teams" type="number" min="2" max="128" required />
+              <p class="warning-box">
+                Importante: este número no se podrá editar después de crear el torneo.
+              </p>
             </div>
 
             <div class="input-group">
@@ -462,6 +465,17 @@ textarea {
   padding: 0.7rem;
   color: #334155;
   background: #f8fafc;
+}
+
+.warning-box {
+  margin-top: 0.4rem;
+  border: 1px solid #fed7aa;
+  border-radius: 10px;
+  padding: 0.55rem 0.65rem;
+  color: #9a3412;
+  background: #fff7ed;
+  font-size: 0.85rem;
+  font-weight: 600;
 }
 
 .ghost-btn {

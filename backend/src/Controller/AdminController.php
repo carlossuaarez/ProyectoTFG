@@ -40,8 +40,10 @@ class AdminController
                     t.visibility,
                     t.access_code_last4,
                     t.created_by,
+                    u.username AS created_by_username,
                     t.created_at
                 FROM tournaments t
+                LEFT JOIN users u ON u.id = t.created_by
                 ORDER BY t.start_date ASC, t.start_time ASC, t.created_at DESC
             ");
 

@@ -19,14 +19,17 @@ class TournamentController
         try {
             $stmt = $this->db->query("
                 SELECT
-                    id, name, description, game, type, max_teams, format,
-                    start_date, start_time, prize,
-                    location_name, location_address, location_lat, location_lng, is_online,
-                    COALESCE(visibility, 'public') AS visibility,
-                    created_by, created_at
-                FROM tournaments
-                WHERE COALESCE(visibility, 'public') = 'public'
-                ORDER BY start_date ASC, start_time ASC, id DESC
+                    t.id, t.name, t.description, t.game, t.type, t.max_teams, t.format,
+                    t.start_date, t.start_time, t.prize,
+                    t.location_name, t.location_address, t.location_lat, t.location_lng, t.is_online,
+                    COALESCE(t.visibility, 'public') AS visibility,
+                    t.created_by,
+                    u.username AS created_by_username,
+                    t.created_at
+                FROM tournaments t
+                LEFT JOIN users u ON u.id = t.created_by
+                WHERE COALESCE(t.visibility, 'public') = 'public'
+                ORDER BY t.start_date ASC, t.start_time ASC, t.id DESC
             ");
             $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
             return $this->json($res, $rows);
@@ -45,7 +48,15 @@ class TournamentController
         }
 
         try {
-            $stmt = $this->db->prepare("SELECT * FROM tournaments WHERE id = ? LIMIT 1");
+            $stmt = $this->db->prepare("
+                SELECT
+                    t.*,
+                    u.username AS created_by_username
+                FROM tournaments t
+                LEFT JOIN users u ON u.id = t.created_by
+                WHERE t.id = ?
+                LIMIT 1
+            ");
             $stmt->execute([$id]);
             $tournament = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -55,14 +66,17 @@ class TournamentController
 
             $visibility = $this->normalizeVisibility((string)($tournament['visibility'] ?? 'public'));
             $tournament['visibility'] = $visibility;
-            $adminPreview = false;
+
+            $requestUser = $this->getRequestUserFromToken($req);
+            $isAdminPreview = (($requestUser['role'] ?? '') === 'admin');
+            $isOwnerPreview = ((int)($requestUser['id'] ?? 0) > 0)
+                && ((int)($requestUser['id'] ?? 0) === (int)($tournament['created_by'] ?? 0));
 
             if ($visibility === 'private') {
                 $code = $this->resolveAccessCodeFromRequest($req);
                 $hash = (string)($tournament['access_code_hash'] ?? '');
-                $adminPreview = $this->isAdminRequest($req);
 
-                if (!$adminPreview && !$this->verifyAccessCode($code, $hash)) {
+                if (!$isAdminPreview && !$isOwnerPreview && !$this->verifyAccessCode($code, $hash)) {
                     return $this->json($res, [
                         'error' => 'Este torneo es privado. Introduce el código de acceso.',
                         'requires_access_code' => true
@@ -82,8 +96,9 @@ class TournamentController
             // Nunca devolver hash
             unset($tournament['access_code_hash']);
 
-            // Flag para frontend: vista admin sin código
-            $tournament['admin_preview'] = $adminPreview;
+            // Flags para frontend
+            $tournament['admin_preview'] = $isAdminPreview;
+            $tournament['owner_preview'] = $isOwnerPreview;
 
             return $this->json($res, $tournament);
         } catch (Throwable $e) {
@@ -228,6 +243,188 @@ class TournamentController
         } catch (Throwable $e) {
             error_log('create tournament error: ' . $e->getMessage());
             return $this->json($res, ['error' => 'No se pudo crear el torneo'], 500);
+        }
+    }
+
+    // Solo el creador del torneo puede editar (max_teams es inmutable)
+    public function update(Request $req, Response $res, array $args): Response
+    {
+        $user = (array)$req->getAttribute('user');
+        $userId = (int)($user['id'] ?? 0);
+        $tournamentId = (int)($args['id'] ?? 0);
+
+        if ($tournamentId <= 0) {
+            return $this->json($res, ['error' => 'ID de torneo no válido'], 400);
+        }
+
+        try {
+            $stmtCurrent = $this->db->prepare("
+                SELECT id, created_by, max_teams, COALESCE(visibility, 'public') AS visibility, access_code_hash, access_code_last4
+                FROM tournaments
+                WHERE id = ?
+                LIMIT 1
+            ");
+            $stmtCurrent->execute([$tournamentId]);
+            $current = $stmtCurrent->fetch(PDO::FETCH_ASSOC);
+
+            if (!$current) {
+                return $this->json($res, ['error' => 'Torneo no encontrado'], 404);
+            }
+
+            if ((int)$current['created_by'] !== $userId) {
+                return $this->json($res, ['error' => 'Solo el creador del torneo puede editarlo'], 403);
+            }
+
+            $data = (array)$req->getParsedBody();
+
+            // max_teams no editable
+            if (array_key_exists('max_teams', $data)) {
+                $incomingMaxTeams = (int)$data['max_teams'];
+                if ($incomingMaxTeams !== (int)$current['max_teams']) {
+                    return $this->json($res, ['error' => 'No se puede modificar el número máximo de equipos'], 400);
+                }
+            }
+
+            $name = trim((string)($data['name'] ?? ''));
+            $description = trim((string)($data['description'] ?? ''));
+            $game = trim((string)($data['game'] ?? ''));
+            $type = trim((string)($data['type'] ?? ''));
+            $format = trim((string)($data['format'] ?? 'single_elim'));
+            $startDate = trim((string)($data['start_date'] ?? ''));
+            $startTime = trim((string)($data['start_time'] ?? ''));
+            $prize = trim((string)($data['prize'] ?? ''));
+
+            $visibility = $this->normalizeVisibility((string)($data['visibility'] ?? $current['visibility'] ?? 'public'));
+
+            $locationName = trim((string)($data['location_name'] ?? ''));
+            $locationAddress = trim((string)($data['location_address'] ?? ''));
+            $locationLatRaw = $data['location_lat'] ?? null;
+            $locationLngRaw = $data['location_lng'] ?? null;
+
+            // Validaciones base
+            if ($name === '' || $description === '' || $game === '' || $type === '') {
+                return $this->json($res, ['error' => 'Campos requeridos: name, description, game, type'], 400);
+            }
+
+            if (!in_array($type, ['sports', 'esports'], true)) {
+                return $this->json($res, ['error' => 'Categoría no válida (sports | esports)'], 400);
+            }
+
+            if (!in_array($format, ['league', 'single_elim'], true)) {
+                return $this->json($res, ['error' => 'Formato no válido (league | single_elim)'], 400);
+            }
+
+            if (!$this->isValidDateYmd($startDate) || $startDate < date('Y-m-d')) {
+                return $this->json($res, ['error' => 'La fecha de inicio no es válida'], 400);
+            }
+
+            if (!$this->isValidTimeHm($startTime)) {
+                return $this->json($res, ['error' => 'start_time debe tener formato HH:MM'], 400);
+            }
+
+            $startTimeSql = $startTime . ':00';
+
+            $isOnline = 0;
+            $locationLat = null;
+            $locationLng = null;
+
+            if ($type === 'esports') {
+                $isOnline = 1;
+                $locationName = 'Online';
+                $locationAddress = 'Online';
+            } else {
+                if ($locationName === '') {
+                    return $this->json($res, ['error' => 'Para deportes debes indicar location_name'], 400);
+                }
+
+                if (!is_numeric($locationLatRaw) || !is_numeric($locationLngRaw)) {
+                    return $this->json($res, ['error' => 'Para deportes debes indicar latitud y longitud'], 400);
+                }
+
+                $locationLat = (float)$locationLatRaw;
+                $locationLng = (float)$locationLngRaw;
+
+                if ($locationLat < -90 || $locationLat > 90 || $locationLng < -180 || $locationLng > 180) {
+                    return $this->json($res, ['error' => 'Coordenadas de ubicación no válidas'], 400);
+                }
+            }
+
+            $currentVisibility = $this->normalizeVisibility((string)($current['visibility'] ?? 'public'));
+            $accessCodeHash = null;
+            $accessCodeLast4 = null;
+            $newPrivateCode = null;
+
+            if ($visibility === 'private') {
+                // Si ya era privado, conserva código.
+                if ($currentVisibility === 'private' && (string)($current['access_code_hash'] ?? '') !== '') {
+                    $accessCodeHash = (string)$current['access_code_hash'];
+                    $accessCodeLast4 = (string)($current['access_code_last4'] ?? '');
+                } else {
+                    // Si pasa de público a privado, genera código nuevo automático.
+                    try {
+                        $newPrivateCode = $this->generateUniqueAccessCode(8);
+                    } catch (Throwable $e) {
+                        error_log('private code generation on update error: ' . $e->getMessage());
+                        return $this->json($res, ['error' => 'No se pudo generar el código privado'], 500);
+                    }
+                    $accessCodeHash = password_hash($newPrivateCode, PASSWORD_DEFAULT);
+                    $accessCodeLast4 = substr($newPrivateCode, -4);
+                }
+            }
+
+            $stmtUpdate = $this->db->prepare("
+                UPDATE tournaments
+                SET
+                    name = ?,
+                    description = ?,
+                    game = ?,
+                    type = ?,
+                    format = ?,
+                    start_date = ?,
+                    start_time = ?,
+                    prize = ?,
+                    location_name = ?,
+                    location_address = ?,
+                    location_lat = ?,
+                    location_lng = ?,
+                    is_online = ?,
+                    visibility = ?,
+                    access_code_hash = ?,
+                    access_code_last4 = ?
+                WHERE id = ?
+            ");
+
+            $stmtUpdate->execute([
+                $name,
+                $description,
+                $game,
+                $type,
+                $format,
+                $startDate,
+                $startTimeSql,
+                ($prize !== '' ? $prize : null),
+                ($locationName !== '' ? $locationName : null),
+                ($locationAddress !== '' ? $locationAddress : null),
+                $locationLat,
+                $locationLng,
+                $isOnline,
+                $visibility,
+                $accessCodeHash,
+                $accessCodeLast4,
+                $tournamentId
+            ]);
+
+            $payload = ['message' => 'Torneo actualizado correctamente'];
+
+            if ($newPrivateCode !== null) {
+                $payload['private_access_code'] = $newPrivateCode;
+                $payload['private_access_code_last4'] = $accessCodeLast4;
+            }
+
+            return $this->json($res, $payload);
+        } catch (Throwable $e) {
+            error_log('update tournament error: ' . $e->getMessage());
+            return $this->json($res, ['error' => 'No se pudo actualizar el torneo'], 500);
         }
     }
 
@@ -393,30 +590,33 @@ class TournamentController
         return null;
     }
 
-    private function isAdminRequest(Request $req): bool
+    private function getRequestUserFromToken(Request $req): array
     {
         $authHeader = $req->getHeaderLine('Authorization');
         if ($authHeader === '' || stripos($authHeader, 'Bearer ') !== 0) {
-            return false;
+            return [];
         }
 
         $token = trim(substr($authHeader, 7));
         if ($token === '') {
-            return false;
+            return [];
         }
 
         try {
             $secret = (string)($_ENV['JWT_SECRET'] ?? '');
             if ($secret === '') {
-                return false;
+                return [];
             }
 
             $decoded = JWT::decode($token, new Key($secret, 'HS256'));
             $payload = (array)$decoded;
 
-            return (($payload['role'] ?? '') === 'admin');
+            return [
+                'id' => (int)($payload['id'] ?? 0),
+                'role' => (string)($payload['role'] ?? ''),
+            ];
         } catch (Throwable $e) {
-            return false;
+            return [];
         }
     }
 
