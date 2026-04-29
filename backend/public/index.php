@@ -34,6 +34,34 @@ $app = AppFactory::create();
 $app->addBodyParsingMiddleware();
 $app->addRoutingMiddleware();
 
+$app->add(function (Request $request, $handler) use ($app) {
+    $path = rawurldecode($request->getUri()->getPath());
+    if (str_starts_with($path, '/uploads/')) {
+        $baseUploadsDir = realpath(__DIR__ . '/uploads');
+        if ($baseUploadsDir === false) {
+            $response = $app->getResponseFactory()->createResponse(404);
+            $response->getBody()->write('Not found');
+            return $response->withHeader('Content-Type', 'text/plain');
+        }
+
+        $candidatePath = realpath($baseUploadsDir . DIRECTORY_SEPARATOR . ltrim(substr($path, strlen('/uploads/')), '/'));
+        if ($candidatePath === false || !str_starts_with($candidatePath, $baseUploadsDir) || !is_file($candidatePath)) {
+            $response = $app->getResponseFactory()->createResponse(404);
+            $response->getBody()->write('Not found');
+            return $response->withHeader('Content-Type', 'text/plain');
+        }
+
+        $mime = mime_content_type($candidatePath) ?: 'application/octet-stream';
+        $response = $app->getResponseFactory()->createResponse(200);
+        $response->getBody()->write((string)file_get_contents($candidatePath));
+        return $response
+            ->withHeader('Content-Type', $mime)
+            ->withHeader('Cache-Control', 'public, max-age=86400');
+    }
+
+    return $handler->handle($request);
+});
+
 $errorMiddleware = $app->addErrorMiddleware($appDebug, true, $appDebug);
 $errorMiddleware->getDefaultErrorHandler()->forceContentType('application/json');
 

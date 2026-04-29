@@ -23,11 +23,21 @@ class TournamentController
                     t.start_date, t.start_time, t.prize,
                     t.location_name, t.location_address, t.location_lat, t.location_lng, t.is_online,
                     COALESCE(t.visibility, 'public') AS visibility,
+                    COALESCE(tc.teams_count, 0) AS teams_count,
+                    CASE
+                        WHEN COALESCE(tc.teams_count, 0) >= t.max_teams THEN 1
+                        ELSE 0
+                    END AS is_full,
                     t.created_by,
                     u.username AS created_by_username,
                     t.created_at
                 FROM tournaments t
                 LEFT JOIN users u ON u.id = t.created_by
+                LEFT JOIN (
+                    SELECT tournament_id, COUNT(*) AS teams_count
+                    FROM teams
+                    GROUP BY tournament_id
+                ) tc ON tc.tournament_id = t.id
                 WHERE COALESCE(t.visibility, 'public') = 'public'
                 ORDER BY t.start_date ASC, t.start_time ASC, t.id DESC
             ");
@@ -92,6 +102,9 @@ class TournamentController
             ");
             $stmtTeams->execute([$id]);
             $tournament['teams'] = $stmtTeams->fetchAll(PDO::FETCH_ASSOC);
+            $teamsCount = count($tournament['teams']);
+            $tournament['teams_count'] = $teamsCount;
+            $tournament['is_full'] = ($teamsCount >= (int)($tournament['max_teams'] ?? 0)) ? 1 : 0;
 
             // Nunca devolver hash
             unset($tournament['access_code_hash']);
@@ -130,8 +143,8 @@ class TournamentController
         $locationLngRaw = $data['location_lng'] ?? null;
 
         // Validaciones base
-        if ($name === '' || $description === '' || $game === '' || $type === '') {
-            return $this->json($res, ['error' => 'Campos requeridos: name, description, game, type'], 400);
+        if ($name === '' || $game === '' || $type === '') {
+            return $this->json($res, ['error' => 'Campos requeridos: name, game, type'], 400);
         }
 
         if (!in_array($type, ['sports', 'esports'], true)) {
@@ -210,7 +223,7 @@ class TournamentController
 
             $stmt->execute([
                 $name,
-                $description,
+                ($description !== '' ? $description : null),
                 $game,
                 $type,
                 $maxTeams,
@@ -302,8 +315,8 @@ class TournamentController
             $locationLngRaw = $data['location_lng'] ?? null;
 
             // Validaciones base
-            if ($name === '' || $description === '' || $game === '' || $type === '') {
-                return $this->json($res, ['error' => 'Campos requeridos: name, description, game, type'], 400);
+            if ($name === '' || $game === '' || $type === '') {
+                return $this->json($res, ['error' => 'Campos requeridos: name, game, type'], 400);
             }
 
             if (!in_array($type, ['sports', 'esports'], true)) {
@@ -396,7 +409,7 @@ class TournamentController
 
             $stmtUpdate->execute([
                 $name,
-                $description,
+                ($description !== '' ? $description : null),
                 $game,
                 $type,
                 $format,

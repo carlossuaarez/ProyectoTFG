@@ -285,6 +285,9 @@ class AuthController {
         $avatarUrl = array_key_exists('avatar_url', $data)
             ? trim((string)$data['avatar_url'])
             : (string)($currentUser['avatar_url'] ?? '');
+        $avatarFileBase64 = array_key_exists('avatar_file_base64', $data)
+            ? trim((string)$data['avatar_file_base64'])
+            : '';
 
         if (!$this->isValidUsername($username)) {
             return $this->json($res, ['error' => 'Username inválido (3-30, letras, números o _)'], 400);
@@ -296,6 +299,21 @@ class AuthController {
 
         if (mb_strlen($fullName) > 100) {
             return $this->json($res, ['error' => 'El nombre no puede superar 100 caracteres'], 400);
+        }
+
+        if ($avatarFileBase64 !== '') {
+            try {
+                $avatarUrl = $this->storeAvatarFromBase64(
+                    $avatarFileBase64,
+                    $userId,
+                    (string)($currentUser['avatar_url'] ?? '')
+                );
+            } catch (InvalidArgumentException $e) {
+                return $this->json($res, ['error' => $e->getMessage()], 400);
+            } catch (Throwable $e) {
+                error_log('avatar upload error: ' . $e->getMessage());
+                return $this->json($res, ['error' => 'No se pudo guardar la foto de perfil'], 500);
+            }
         }
 
         if (!$this->isValidAvatarUrl($avatarUrl)) {
@@ -439,7 +457,60 @@ class AuthController {
     {
         if ($url === '') return true;
         if (mb_strlen($url) > 255) return false;
+        if (str_starts_with($url, '/uploads/avatars/')) return true;
         return filter_var($url, FILTER_VALIDATE_URL) !== false;
+    }
+
+    private function storeAvatarFromBase64(string $dataUri, int $userId, string $currentAvatarUrl = ''): string
+    {
+        if (!preg_match('/^data:image\/(png|jpe?g|webp);base64,([A-Za-z0-9+\/=]+)$/i', $dataUri, $matches)) {
+            throw new InvalidArgumentException('Formato de imagen no válido (usa PNG, JPG o WEBP)');
+        }
+
+        $extRaw = strtolower($matches[1]);
+        $ext = match ($extRaw) {
+            'jpeg', 'jpg' => 'jpg',
+            'png' => 'png',
+            'webp' => 'webp',
+            default => throw new InvalidArgumentException('Formato de imagen no permitido')
+        };
+
+        $binary = base64_decode($matches[2], true);
+        if ($binary === false) {
+            throw new InvalidArgumentException('No se pudo procesar la imagen');
+        }
+
+        if (strlen($binary) > 2 * 1024 * 1024) {
+            throw new InvalidArgumentException('La imagen no puede superar 2 MB');
+        }
+
+        $imageInfo = @getimagesizefromstring($binary);
+        if ($imageInfo === false) {
+            throw new InvalidArgumentException('El archivo no es una imagen válida');
+        }
+
+        $avatarsDir = __DIR__ . '/../../public/uploads/avatars';
+        if (!is_dir($avatarsDir) && !mkdir($avatarsDir, 0755, true) && !is_dir($avatarsDir)) {
+            throw new RuntimeException('No se pudo crear el directorio de avatares');
+        }
+
+        $filename = 'u' . $userId . '_' . date('YmdHis') . '_' . bin2hex(random_bytes(6)) . '.' . $ext;
+        $absolutePath = $avatarsDir . '/' . $filename;
+
+        if (file_put_contents($absolutePath, $binary) === false) {
+            throw new RuntimeException('No se pudo guardar la imagen');
+        }
+
+        // Limpieza de avatar anterior si era local.
+        if ($currentAvatarUrl !== '' && str_starts_with($currentAvatarUrl, '/uploads/avatars/')) {
+            $oldRelative = ltrim($currentAvatarUrl, '/');
+            $oldAbsolute = __DIR__ . '/../../public/' . $oldRelative;
+            if (is_file($oldAbsolute) && is_writable($oldAbsolute)) {
+                @unlink($oldAbsolute);
+            }
+        }
+
+        return '/uploads/avatars/' . $filename;
     }
 
     private function json(Response $res, array $payload, int $status = 200): Response

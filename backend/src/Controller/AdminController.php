@@ -28,6 +28,11 @@ class AdminController
                     t.game,
                     t.type,
                     t.max_teams,
+                    COALESCE(tc.teams_count, 0) AS teams_count,
+                    CASE
+                        WHEN COALESCE(tc.teams_count, 0) >= t.max_teams THEN 1
+                        ELSE 0
+                    END AS is_full,
                     t.format,
                     t.start_date,
                     t.start_time,
@@ -44,6 +49,11 @@ class AdminController
                     t.created_at
                 FROM tournaments t
                 LEFT JOIN users u ON u.id = t.created_by
+                LEFT JOIN (
+                    SELECT tournament_id, COUNT(*) AS teams_count
+                    FROM teams
+                    GROUP BY tournament_id
+                ) tc ON tc.tournament_id = t.id
                 ORDER BY t.start_date ASC, t.start_time ASC, t.created_at DESC
             ");
 
