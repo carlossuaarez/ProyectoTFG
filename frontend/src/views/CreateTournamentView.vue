@@ -46,8 +46,8 @@
           </div>
 
           <div class="input-group">
-            <label for="description">Descripción</label>
-            <textarea id="description" v-model.trim="description" rows="4" required />
+            <label for="description">Descripción (opcional)</label>
+            <textarea id="description" v-model.trim="description" rows="4" />
           </div>
 
           <div class="input-row">
@@ -308,7 +308,6 @@ async function searchLocation() {
 function validateBeforeSubmit() {
   if (!resolvedGame.value) return 'Selecciona un deporte/juego.'
   if (name.value.trim().length < 3) return 'El nombre debe tener al menos 3 caracteres.'
-  if (description.value.trim().length < 10) return 'La descripción debe tener al menos 10 caracteres.'
   if (!start_date.value || start_date.value < todayYmd) return 'La fecha no puede ser anterior a hoy.'
   if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(start_time.value)) return 'Hora no válida.'
 

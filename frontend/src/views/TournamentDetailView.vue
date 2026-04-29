@@ -41,7 +41,10 @@
         </div>
         <div class="info-item">
           <span>Equipos</span>
-          <strong>{{ teams.length }} / {{ tournament.max_teams }}</strong>
+          <strong>
+            {{ teams.length }} / {{ tournament.max_teams }}
+            <template v-if="isFullTournament"> · COMPLETO</template>
+          </strong>
         </div>
         <div class="info-item">
           <span>Formato</span>
@@ -92,8 +95,8 @@
             </div>
 
             <div class="input-group full">
-              <label for="edit-description">Descripción</label>
-              <textarea id="edit-description" v-model.trim="editForm.description" rows="4" required />
+              <label for="edit-description">Descripción (opcional)</label>
+              <textarea id="edit-description" v-model.trim="editForm.description" rows="4" />
             </div>
 
             <div class="input-group">
@@ -192,7 +195,7 @@
       </ul>
       <p v-else class="empty">Todavía no hay equipos inscritos.</p>
 
-      <div v-if="canJoin" class="join-box">
+      <div v-if="canJoin && !isFullTournament" class="join-box">
         <h3>Inscribir equipo</h3>
         <div class="join-row">
           <input v-model.trim="teamName" placeholder="Nombre del equipo" />
@@ -208,6 +211,10 @@
         <p v-if="joinError" class="msg error">{{ joinError }}</p>
         <p v-if="joinSuccess" class="msg success">{{ joinSuccess }}</p>
       </div>
+
+      <p v-else-if="isFullTournament" class="full-note">
+        COMPLETO: este torneo ya no admite más equipos.
+      </p>
 
       <p v-else-if="isAdminPreview && tournament.visibility === 'private'" class="admin-preview-note">
         Vista de administración: puedes consultar la información del torneo privado sin código, pero no inscribirte.
@@ -328,6 +335,11 @@ function getAccessCodeForTournament(tournamentId) {
 }
 
 const isOnline = computed(() => Number(tournament.value?.is_online || 0) === 1)
+const isFullTournament = computed(() => {
+  const current = Number(tournament.value?.teams_count ?? teams.value.length)
+  const max = Number(tournament.value?.max_teams || 0)
+  return max > 0 && current >= max
+})
 
 const mapEmbedUrl = computed(() => {
   if (!tournament.value || isOnline.value) return ''
@@ -459,7 +471,6 @@ function cancelEdit() {
 
 function validateEditForm() {
   if (editForm.value.name.trim().length < 3) return 'El nombre debe tener al menos 3 caracteres.'
-  if (editForm.value.description.trim().length < 10) return 'La descripción debe tener al menos 10 caracteres.'
   if (!editForm.value.game.trim()) return 'La disciplina/juego es obligatorio.'
   if (!['sports', 'esports'].includes(editForm.value.type)) return 'Categoría no válida.'
   if (!['single_elim', 'league'].includes(editForm.value.format)) return 'Formato no válido.'

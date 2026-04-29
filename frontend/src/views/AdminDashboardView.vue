@@ -96,7 +96,10 @@
               </small>
             </td>
 
-            <td>{{ t.max_teams }}</td>
+            <td>
+              <span v-if="Number(t.is_full) === 1" class="full-badge">COMPLETO</span>
+              <span v-else>{{ Number(t.teams_count || 0) }} / {{ t.max_teams }}</span>
+            </td>
 
             <td>
               <div class="actions-cell">
@@ -304,6 +307,17 @@ tbody td {
   margin-top: 0.2rem;
   color: #7f1d1d;
   font-size: 0.78rem;
+}
+
+.full-badge {
+  display: inline-block;
+  border: 1px solid #bbf7d0;
+  background: #dcfce7;
+  color: #166534;
+  border-radius: 999px;
+  padding: 0.18rem 0.55rem;
+  font-size: 0.78rem;
+  font-weight: 800;
 }
 
 .actions-cell { display: flex; gap: 0.45rem; align-items: center; }

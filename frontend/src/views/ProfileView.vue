@@ -1,4 +1,4 @@
-<template>
+a<template>
   <section class="profile-page">
     <article class="profile-card">
       <header class="profile-header">
@@ -65,6 +65,20 @@
             <small class="help">Puedes pegar una URL de imagen pública.</small>
           </div>
 
+          <div class="input-group">
+            <label for="avatarFile">O subir foto desde tu dispositivo</label>
+            <input
+              id="avatarFile"
+              ref="avatarFileInputRef"
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              @change="handleAvatarFileChange"
+            />
+            <small class="help">PNG/JPG/WEBP, máximo 2 MB.</small>
+            <small v-if="selectedFileName" class="help">Archivo: {{ selectedFileName }}</small>
+            <small v-if="fileError" class="msg error file-error">{{ fileError }}</small>
+          </div>
+
           <p v-if="errorMessage" class="msg error">{{ errorMessage }}</p>
           <p v-if="successMessage" class="msg success">{{ successMessage }}</p>
 
@@ -88,6 +102,11 @@ const saving = ref(false)
 const errorMessage = ref('')
 const successMessage = ref('')
 const avatarBroken = ref(false)
+const localAvatarPreview = ref('')
+const avatarFileBase64 = ref('')
+const selectedFileName = ref('')
+const fileError = ref('')
+const avatarFileInputRef = ref(null)
 
 const form = reactive({
   full_name: '',
@@ -97,16 +116,93 @@ const form = reactive({
 })
 
 const fallbackAvatar = '/favicon.svg'
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api'
+
+function getBackendOrigin() {
+  try {
+    return new URL(API_BASE).origin
+  } catch {
+    return ''
+  }
+}
+
+function resolveAvatarUrl(url) {
+  const value = String(url || '').trim()
+  if (!value) return ''
+  if (value.startsWith('/uploads/')) {
+    const origin = getBackendOrigin()
+    return origin ? `${origin}${value}` : value
+  }
+  return value
+}
 
 const avatarPreview = computed(() => {
-  if (avatarBroken.value || !form.avatar_url) {
+  if (localAvatarPreview.value) {
+    return localAvatarPreview.value
+  }
+  const resolved = resolveAvatarUrl(form.avatar_url)
+  if (avatarBroken.value || !resolved) {
     return fallbackAvatar
   }
-  return form.avatar_url
+  return resolved
 })
 
 function onAvatarError() {
   avatarBroken.value = true
+}
+
+function clearLocalAvatarSelection() {
+  localAvatarPreview.value = ''
+  avatarFileBase64.value = ''
+  selectedFileName.value = ''
+  if (avatarFileInputRef.value) {
+    avatarFileInputRef.value.value = ''
+  }
+}
+
+function handleAvatarFileChange(event) {
+  const file = event?.target?.files?.[0]
+  fileError.value = ''
+
+  if (!file) {
+    clearLocalAvatarSelection()
+    fileError.value = ''
+    return
+  }
+
+  const allowedTypes = ['image/png', 'image/jpeg', 'image/webp']
+  if (!allowedTypes.includes(file.type)) {
+    fileError.value = 'Formato no permitido. Usa PNG, JPG o WEBP.'
+    clearLocalAvatarSelection()
+    return
+  }
+
+  const maxBytes = 2 * 1024 * 1024
+  if (file.size > maxBytes) {
+    fileError.value = 'La imagen supera 2 MB.'
+    clearLocalAvatarSelection()
+    return
+  }
+
+  const reader = new FileReader()
+  reader.onload = () => {
+    const result = String(reader.result || '')
+    if (!result.startsWith('data:image/')) {
+      fileError.value = 'No se pudo leer la imagen seleccionada.'
+      clearLocalAvatarSelection()
+      return
+    }
+
+    avatarFileBase64.value = result
+    localAvatarPreview.value = result
+    selectedFileName.value = file.name
+    avatarBroken.value = false
+  }
+  reader.onerror = () => {
+    fileError.value = 'No se pudo leer la imagen seleccionada.'
+    clearLocalAvatarSelection()
+  }
+  reader.readAsDataURL(file)
 }
 
 function fillFormFromUser(user) {
@@ -115,6 +211,7 @@ function fillFormFromUser(user) {
   form.email = user?.email || ''
   form.avatar_url = user?.avatar_url || ''
   avatarBroken.value = false
+  clearLocalAvatarSelection()
 }
 
 onMounted(async () => {
@@ -149,6 +246,7 @@ async function handleSave() {
     username: form.username,
     email: form.email,
     avatar_url: form.avatar_url,
+    avatar_file_base64: avatarFileBase64.value,
   }
 
   const result = await authStore.updateMe(payload)
@@ -160,6 +258,7 @@ async function handleSave() {
 
   fillFormFromUser(result.user)
   successMessage.value = result.message || 'Perfil actualizado correctamente'
+  clearLocalAvatarSelection()
   saving.value = false
 }
 </script>
@@ -278,6 +377,10 @@ input:focus {
 
 .msg.error {
   color: #b91c1c;
+}
+
+.file-error {
+  margin-top: 0.2rem;
 }
 
 .msg.success {

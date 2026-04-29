@@ -81,6 +81,8 @@ function normalizeText(value) {
 }
 
 function normalizeTournament(t) {
+  const teamsCount = Number(t.teams_count ?? 0)
+  const maxTeams = Number(t.max_teams || 0)
   return {
     id: t.id,
     name: t.name || 'Torneo sin nombre',
@@ -90,7 +92,9 @@ function normalizeTournament(t) {
     format: t.format || 'single_elim',
     start_date: t.start_date || null,
     start_time: t.start_time || '00:00:00',
-    max_teams: Number(t.max_teams || 0),
+    max_teams: maxTeams,
+    teams_count: teamsCount,
+    is_full: Number(t.is_full ?? (maxTeams > 0 && teamsCount >= maxTeams ? 1 : 0)),
     location_name: t.location_name || '',
     is_online: Number(t.is_online || 0),
     visibility: t.visibility || 'public',

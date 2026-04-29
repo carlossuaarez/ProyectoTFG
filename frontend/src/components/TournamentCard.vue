@@ -21,7 +21,8 @@
       </div>
       <div>
         <span class="label">Equipos</span>
-        <strong>{{ tournament.max_teams }}</strong>
+        <strong v-if="isFull" class="full-badge">COMPLETO</strong>
+        <strong v-else>{{ teamsCount }} / {{ tournament.max_teams }}</strong>
       </div>
       <div>
         <span class="label">Formato</span>
@@ -53,6 +54,13 @@ const creatorLabel = computed(() => {
 
   const createdBy = Number(props.tournament?.created_by || 0)
   return createdBy > 0 ? `Usuario #${createdBy}` : 'Desconocido'
+})
+
+const teamsCount = computed(() => Number(props.tournament?.teams_count || 0))
+const isFull = computed(() => {
+  if (Number(props.tournament?.is_full || 0) === 1) return true
+  const maxTeams = Number(props.tournament?.max_teams || 0)
+  return maxTeams > 0 && teamsCount.value >= maxTeams
 })
 
 function formatDateTime(date, time) {
@@ -161,6 +169,10 @@ h3 {
   color: var(--muted);
   font-size: 0.78rem;
   margin-bottom: 0.15rem;
+}
+
+.full-badge {
+  color: #991b1b;
 }
 
 .cta {
