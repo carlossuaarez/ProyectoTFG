@@ -21,11 +21,18 @@
         <router-link to="/tournaments">Torneos</router-link>
 
         <template v-if="token">
+          <router-link to="/profile" class="action-link">
+            <UserCircle class="pill-icon" />
+            Perfil
+          </router-link>
+
           <router-link to="/create-tournament" class="pill pill-primary action-link">
             <Plus class="pill-icon" />
             Crear torneo
           </router-link>
+
           <router-link v-if="isAdmin" to="/admin">Admin</router-link>
+
           <button class="pill pill-ghost action-link" type="button" @click="handleLogout">
             <LogOut class="pill-icon" />
             Cerrar sesión
@@ -46,7 +53,7 @@ import { ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { storeToRefs } from 'pinia'
-import { Trophy, Menu, X, Plus, LogOut } from 'lucide-vue-next'
+import { Trophy, Menu, X, Plus, LogOut, UserCircle } from 'lucide-vue-next'
 
 const authStore = useAuthStore()
 const { token, isAdmin } = storeToRefs(authStore)

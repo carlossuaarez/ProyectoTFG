@@ -101,6 +101,7 @@ class AuthController {
         $email = strtolower(trim((string)($googlePayload['email'] ?? '')));
         $emailVerified = (bool)($googlePayload['email_verified'] ?? false);
         $name = trim((string)($googlePayload['name'] ?? 'usuario_google'));
+        $picture = trim((string)($googlePayload['picture'] ?? ''));
 
         if ($googleId === '' || $email === '') {
             return $this->json($res, ['error' => 'Google no devolvió datos suficientes'], 401);
@@ -123,10 +124,17 @@ class AuthController {
                 $passwordHash = password_hash($randomPassword, PASSWORD_DEFAULT);
 
                 $insert = $this->db->prepare("
-                    INSERT INTO users (username, email, password_hash, google_id)
-                    VALUES (?, ?, ?, ?)
+                    INSERT INTO users (username, full_name, email, avatar_url, password_hash, google_id)
+                    VALUES (?, ?, ?, ?, ?, ?)
                 ");
-                $insert->execute([$username, $email, $passwordHash, $googleId]);
+                $insert->execute([
+                    $username,
+                    ($name !== '' ? $name : null),
+                    $email,
+                    ($picture !== '' ? $picture : null),
+                    $passwordHash,
+                    $googleId
+                ]);
 
                 $newUserId = (int)$this->db->lastInsertId();
                 $userStmt = $this->db->prepare("SELECT * FROM users WHERE id = ? LIMIT 1");
@@ -227,6 +235,103 @@ class AuthController {
         return $this->issueJwtResponse($challenge, $res);
     }
 
+    // perfil 
+    public function me(Request $req, Response $res)
+    {
+        $authUser = (array)$req->getAttribute('user');
+        $userId = (int)($authUser['id'] ?? 0);
+
+        if ($userId <= 0) {
+            return $this->json($res, ['error' => 'No autorizado'], 401);
+        }
+
+        $user = $this->getUserById($userId);
+        if (!$user) {
+            return $this->json($res, ['error' => 'Usuario no encontrado'], 404);
+        }
+
+        return $this->json($res, ['user' => $this->publicUser($user)]);
+    }
+
+    // actualizar perfil
+    public function updateProfile(Request $req, Response $res)
+    {
+        $authUser = (array)$req->getAttribute('user');
+        $userId = (int)($authUser['id'] ?? 0);
+
+        if ($userId <= 0) {
+            return $this->json($res, ['error' => 'No autorizado'], 401);
+        }
+
+        $currentUser = $this->getUserById($userId);
+        if (!$currentUser) {
+            return $this->json($res, ['error' => 'Usuario no encontrado'], 404);
+        }
+
+        $data = (array)$req->getParsedBody();
+
+        $username = array_key_exists('username', $data)
+            ? trim((string)$data['username'])
+            : (string)$currentUser['username'];
+
+        $email = array_key_exists('email', $data)
+            ? strtolower(trim((string)$data['email']))
+            : (string)$currentUser['email'];
+
+        $fullName = array_key_exists('full_name', $data)
+            ? trim((string)$data['full_name'])
+            : (string)($currentUser['full_name'] ?? '');
+
+        $avatarUrl = array_key_exists('avatar_url', $data)
+            ? trim((string)$data['avatar_url'])
+            : (string)($currentUser['avatar_url'] ?? '');
+
+        if (!$this->isValidUsername($username)) {
+            return $this->json($res, ['error' => 'Username inválido (3-30, letras, números o _)'], 400);
+        }
+
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            return $this->json($res, ['error' => 'Email no válido'], 400);
+        }
+
+        if (mb_strlen($fullName) > 100) {
+            return $this->json($res, ['error' => 'El nombre no puede superar 100 caracteres'], 400);
+        }
+
+        if (!$this->isValidAvatarUrl($avatarUrl)) {
+            return $this->json($res, ['error' => 'La URL de la foto no es válida'], 400);
+        }
+
+        try {
+            $stmt = $this->db->prepare("
+                UPDATE users
+                SET username = ?, email = ?, full_name = ?, avatar_url = ?
+                WHERE id = ?
+            ");
+            $stmt->execute([
+                $username,
+                $email,
+                ($fullName !== '' ? $fullName : null),
+                ($avatarUrl !== '' ? $avatarUrl : null),
+                $userId
+            ]);
+
+            $updatedUser = $this->getUserById($userId);
+            $newToken = $this->createJwtToken($updatedUser);
+
+            return $this->json($res, [
+                'message' => 'Perfil actualizado correctamente',
+                'token' => $newToken,
+                'user' => $this->publicUser($updatedUser)
+            ]);
+        } catch (PDOException $e) {
+            if ((int)$e->getCode() === 23000 || str_contains($e->getMessage(), 'Duplicate entry')) {
+                return $this->json($res, ['error' => 'El username o email ya está en uso'], 409);
+            }
+            return $this->json($res, ['error' => 'No se pudo actualizar el perfil'], 500);
+        }
+    }
+
     private function startTwoFactorChallenge(array $user, Response $res): Response
     {
         $retryAfter = 0;
@@ -261,16 +366,16 @@ class AuthController {
         } catch (Throwable $e) {
             if ($this->shouldBypassTwoFactorOnMailFailure()) {
                 error_log('2FA mail delivery failed, bypass enabled for development: ' . $e->getMessage());
- 
+
                 $cleanup = $this->db->prepare("DELETE FROM login_challenges WHERE public_id = ?");
                 $cleanup->execute([$challengeId]);
- 
+
                 return $this->issueJwtResponse($user, $res);
             }
- 
+
             $cleanup = $this->db->prepare("DELETE FROM login_challenges WHERE public_id = ?");
             $cleanup->execute([$challengeId]);
- 
+
             return $this->json($res, ['error' => $e->getMessage()], 500);
         }
 
@@ -283,6 +388,12 @@ class AuthController {
 
     private function issueJwtResponse(array $user, Response $res): Response
     {
+        $jwt = $this->createJwtToken($user);
+        return $this->json($res, ['token' => $jwt]);
+    }
+
+    private function createJwtToken(array $user): string
+    {
         $payload = [
             'id' => (int)$user['id'],
             'username' => (string)$user['username'],
@@ -290,9 +401,45 @@ class AuthController {
             'exp' => time() + 3600
         ];
 
-        $jwt = JWT::encode($payload, $_ENV['JWT_SECRET'], 'HS256');
+        return JWT::encode($payload, $_ENV['JWT_SECRET'], 'HS256');
+    }
 
-        return $this->json($res, ['token' => $jwt]);
+    private function getUserById(int $id): ?array
+    {
+        $stmt = $this->db->prepare("
+            SELECT id, username, full_name, email, avatar_url, role, created_at
+            FROM users
+            WHERE id = ?
+            LIMIT 1
+        ");
+        $stmt->execute([$id]);
+        $user = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $user ?: null;
+    }
+
+    private function publicUser(array $user): array
+    {
+        return [
+            'id' => (int)$user['id'],
+            'username' => (string)$user['username'],
+            'full_name' => (string)($user['full_name'] ?? ''),
+            'email' => (string)$user['email'],
+            'avatar_url' => (string)($user['avatar_url'] ?? ''),
+            'role' => (string)($user['role'] ?? 'user'),
+            'created_at' => $user['created_at'] ?? null
+        ];
+    }
+
+    private function isValidUsername(string $username): bool
+    {
+        return (bool)preg_match('/^[a-zA-Z0-9_]{3,30}$/', $username);
+    }
+
+    private function isValidAvatarUrl(string $url): bool
+    {
+        if ($url === '') return true;
+        if (mb_strlen($url) > 255) return false;
+        return filter_var($url, FILTER_VALIDATE_URL) !== false;
     }
 
     private function json(Response $res, array $payload, int $status = 200): Response
@@ -367,11 +514,11 @@ class AuthController {
     }
 
     private function consumeRateLimit(
-    string $bucket,
-    string $rawKey,
-    int $maxRequests,
-    int $windowSeconds,
-    int &$retryAfter = 0
+        string $bucket,
+        string $rawKey,
+        int $maxRequests,
+        int $windowSeconds,
+        int &$retryAfter = 0
     ): bool {
         $retryAfter = 0;
         $key = trim($rawKey) !== '' ? strtolower(trim($rawKey)) : 'anonymous';
@@ -430,19 +577,17 @@ class AuthController {
                 $this->db->rollBack();
             }
             error_log('consumeRateLimit error: ' . $e->getMessage());
-            // fail-open en error técnico
             return true;
         }
     }
 
     private function isStrongPassword(string $password): bool {
-        // mínimo 8, al menos una minúscula, una mayúscula y un número
         return (bool)preg_match('/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/', $password);
     }
 
     private function shouldBypassTwoFactorOnMailFailure(): bool {
         $bypassEnabled = filter_var(
-            $_ENV['AUTH_DEV_BYPASS_2FA_ON_MAIL_FAILURE'] ?? 'false', 
+            $_ENV['AUTH_DEV_BYPASS_2FA_ON_MAIL_FAILURE'] ?? 'false',
             FILTER_VALIDATE_BOOLEAN
         );
 
@@ -453,6 +598,4 @@ class AuthController {
         $appEnv = strtolower(trim((string)($_ENV['APP_ENV'] ?? 'production')));
         return in_array($appEnv, ['dev', 'development', 'local', 'test'], true);
     }
-
-} 
-
+}

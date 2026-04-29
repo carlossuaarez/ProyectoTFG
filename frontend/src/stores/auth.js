@@ -22,6 +22,7 @@ function parseJwt(token) {
 export const useAuthStore = defineStore('auth', () => {
   const token = ref(localStorage.getItem('token') || null)
   const pending2fa = ref(null)
+  const me = ref(null)
   const router = useRouter()
 
   const payload = computed(() => (token.value ? parseJwt(token.value) : null))
@@ -35,6 +36,10 @@ export const useAuthStore = defineStore('auth', () => {
 
   function clearPending2fa() {
     pending2fa.value = null
+  }
+
+  function clearMe() {
+    me.value = null
   }
 
   function handleAuthResponse(data) {
@@ -103,6 +108,42 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  async function fetchMe() {
+    try {
+      const res = await api.get('/me')
+      me.value = res.data?.user || null
+      return { success: true, user: me.value }
+    } catch (err) {
+      return {
+        success: false,
+        message: err.response?.data?.error || 'No se pudo cargar el perfil.',
+      }
+    }
+  }
+
+  async function updateMe(profileData) {
+    try {
+      const res = await api.put('/me', profileData)
+
+      if (res.data?.token) {
+        setToken(res.data.token)
+      }
+
+      me.value = res.data?.user || null
+
+      return {
+        success: true,
+        message: res.data?.message || 'Perfil actualizado',
+        user: me.value,
+      }
+    } catch (err) {
+      return {
+        success: false,
+        message: err.response?.data?.error || 'No se pudo actualizar el perfil.',
+      }
+    }
+  }
+
   async function register(username, email, password) {
     try {
       await api.post('/register', { username, email, password })
@@ -117,6 +158,7 @@ export const useAuthStore = defineStore('auth', () => {
   function logout() {
     token.value = null
     clearPending2fa()
+    clearMe()
     localStorage.removeItem('token')
     router.push('/login')
   }
@@ -124,12 +166,15 @@ export const useAuthStore = defineStore('auth', () => {
   return {
     token,
     pending2fa,
+    me,
     payload,
     isAdmin,
     isAuthenticated,
     login,
     loginWithGoogle,
     verify2fa,
+    fetchMe,
+    updateMe,
     clearPending2fa,
     register,
     logout,

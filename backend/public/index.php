@@ -110,11 +110,11 @@ $twoFaByChallengeLimiter = new RateLimitMiddleware(
     }
 );
 
-// ---- Rate limiters torneos privados (anti brute-force código) ----
+// ---- Rate limiters torneos privados ----
 $tournamentDetailLimiter = new RateLimitMiddleware(
     $db,
     'tournament_detail_ip_id',
-    60,  // 60 req/10m por IP+torneo
+    60,
     600,
     function (Request $r): string {
         $ip = RateLimitMiddleware::extractClientIp($r);
@@ -127,7 +127,7 @@ $tournamentDetailLimiter = new RateLimitMiddleware(
 $tournamentJoinLimiter = new RateLimitMiddleware(
     $db,
     'tournament_join_ip_id',
-    30,  // 30 req/10m por IP+torneo
+    30,
     600,
     function (Request $r): string {
         $ip = RateLimitMiddleware::extractClientIp($r);
@@ -156,11 +156,18 @@ $app->get('/api/tournaments/{id}', [$tournamentController, 'getById'])
     ->add($tournamentDetailLimiter);
 
 // Rutas protegidas
-$app->group('/api', function ($group) use ($tournamentController, $adminController) {
+$app->group('/api', function ($group) use ($authController, $tournamentController, $adminController, $tournamentJoinLimiter) {
+    // Perfil
+    $group->get('/me', [$authController, 'me']);
+    $group->put('/me', [$authController, 'updateProfile']);
+
+    // Torneos
     $group->post('/tournaments', [$tournamentController, 'create']);
-    $group->post('/tournaments/{id}/join', [$tournamentController, 'join']);
+    $group->post('/tournaments/{id}/join', [$tournamentController, 'join'])->add($tournamentJoinLimiter);
+
+    // Admin
     $group->get('/admin/tournaments', [$adminController, 'getAllTournaments']);
     $group->delete('/admin/tournaments/{id}', [$adminController, 'deleteTournament']);
-})->add($authMiddleware)->add($tournamentJoinLimiter);
+})->add($authMiddleware);
 
 $app->run();
