@@ -10,12 +10,73 @@
 
       <div v-else>
         <div class="avatar-row">
-          <img
-            :src="avatarPreview"
-            alt="Foto de perfil"
-            class="avatar"
-            @error="onAvatarError"
-          />
+          <div ref="avatarEditorRef" class="avatar-wrapper">
+            <img
+              :src="avatarPreview"
+              alt="Foto de perfil"
+              class="avatar"
+              @error="onAvatarError"
+            />
+
+            <button
+              type="button"
+              class="avatar-overlay-btn"
+              @click.stop="togglePhotoEditor"
+            >
+              Cambiar foto
+            </button>
+
+            <div v-if="photoEditorOpen" class="avatar-editor" @click.stop>
+              <div class="editor-tabs">
+                <button
+                  type="button"
+                  class="editor-tab"
+                  :class="{ active: photoMode === 'file' }"
+                  @click="photoMode = 'file'"
+                >
+                  Dispositivo
+                </button>
+                <button
+                  type="button"
+                  class="editor-tab"
+                  :class="{ active: photoMode === 'url' }"
+                  @click="photoMode = 'url'"
+                >
+                  URL
+                </button>
+              </div>
+
+              <div v-if="photoMode === 'file'" class="editor-panel">
+                <input
+                  ref="avatarFileInputRef"
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  @change="handleAvatarFileChange"
+                />
+                <small class="help">PNG/JPG/WEBP, máximo 2 MB.</small>
+                <small v-if="selectedFileName" class="help">Archivo: {{ selectedFileName }}</small>
+              </div>
+
+              <div v-else class="editor-panel">
+                <input
+                  v-model.trim="photoUrlDraft"
+                  type="text"
+                  class="editor-input"
+                  placeholder="https://... o /uploads/avatars/..."
+                />
+                <div class="editor-actions">
+                  <button type="button" class="mini-btn" @click="applyPhotoUrl">
+                    Aplicar URL
+                  </button>
+                </div>
+              </div>
+
+              <small v-if="photoEditorError || fileError" class="msg error file-error">
+                {{ photoEditorError || fileError }}
+              </small>
+            </div>
+          </div>
+
           <div class="avatar-meta">
             <strong>{{ userHandle }}</strong>
             <small>{{ form.email || '-' }}</small>
@@ -30,7 +91,6 @@
               v-model.trim="form.full_name"
               maxlength="100"
               placeholder="Tu nombre completo"
-              required
             />
           </div>
 
@@ -55,31 +115,6 @@
             />
           </div>
 
-          <div class="input-group">
-            <label for="avatarUrl">Foto de perfil (URL)</label>
-            <input
-              id="avatarUrl"
-              v-model.trim="form.avatar_url"
-              type="url"
-              placeholder="https://..."
-            />
-            <small class="help">Puedes pegar una URL de imagen pública.</small>
-          </div>
-
-          <div class="input-group">
-            <label for="avatarFile">O subir foto desde tu dispositivo</label>
-            <input
-              id="avatarFile"
-              ref="avatarFileInputRef"
-              type="file"
-              accept="image/png,image/jpeg,image/webp"
-              @change="handleAvatarFileChange"
-            />
-            <small class="help">PNG/JPG/WEBP, máximo 2 MB.</small>
-            <small v-if="selectedFileName" class="help">Archivo: {{ selectedFileName }}</small>
-            <small v-if="fileError" class="msg error file-error">{{ fileError }}</small>
-          </div>
-
           <p v-if="errorMessage" class="msg error">{{ errorMessage }}</p>
           <p v-if="successMessage" class="msg success">{{ successMessage }}</p>
 
@@ -93,7 +128,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useAuthStore } from '../stores/auth'
 
 const authStore = useAuthStore()
@@ -103,10 +138,17 @@ const saving = ref(false)
 const errorMessage = ref('')
 const successMessage = ref('')
 const avatarBroken = ref(false)
+
 const localAvatarPreview = ref('')
 const avatarFileBase64 = ref('')
 const selectedFileName = ref('')
 const fileError = ref('')
+
+const photoEditorOpen = ref(false)
+const photoMode = ref('file') // ahora por defecto abre en Dispositivo
+const photoUrlDraft = ref('')
+const photoEditorError = ref('')
+const avatarEditorRef = ref(null)
 const avatarFileInputRef = ref(null)
 
 const form = reactive({
@@ -137,19 +179,23 @@ function resolveAvatarUrl(url) {
   return value
 }
 
+function isValidAvatarReference(value) {
+  if (value === '') return true
+  if (value.startsWith('/uploads/')) return true
+  return /^https?:\/\/[^\s]+$/i.test(value)
+}
+
 const userHandle = computed(() => {
   const clean = String(form.username || '').trim().replace(/^@+/, '')
   return clean ? `@${clean}` : '@'
 })
 
 const avatarPreview = computed(() => {
-  if (localAvatarPreview.value) {
-    return localAvatarPreview.value
-  }
+  if (localAvatarPreview.value) return localAvatarPreview.value
+
   const resolved = resolveAvatarUrl(form.avatar_url)
-  if (avatarBroken.value || !resolved) {
-    return fallbackAvatar
-  }
+  if (avatarBroken.value || !resolved) return fallbackAvatar
+
   return resolved
 })
 
@@ -167,9 +213,40 @@ function clearLocalAvatarSelection() {
   }
 }
 
+function togglePhotoEditor() {
+  photoEditorOpen.value = !photoEditorOpen.value
+  photoEditorError.value = ''
+  if (photoEditorOpen.value) {
+    photoUrlDraft.value = form.avatar_url || ''
+  }
+}
+
+function closePhotoEditor() {
+  photoEditorOpen.value = false
+  photoEditorError.value = ''
+}
+
+function applyPhotoUrl() {
+  const value = String(photoUrlDraft.value || '').trim()
+
+  if (!isValidAvatarReference(value)) {
+    photoEditorError.value = 'Introduce una URL válida (http/https) o una ruta /uploads/...'
+    return
+  }
+
+  form.avatar_url = value
+  avatarBroken.value = false
+  photoEditorError.value = ''
+
+  // Si aplicamos URL, se descarta selección local de archivo
+  clearLocalAvatarSelection()
+  closePhotoEditor()
+}
+
 function handleAvatarFileChange(event) {
   const file = event?.target?.files?.[0]
   fileError.value = ''
+  photoEditorError.value = ''
 
   if (!file) {
     clearLocalAvatarSelection()
@@ -203,6 +280,7 @@ function handleAvatarFileChange(event) {
     localAvatarPreview.value = result
     selectedFileName.value = file.name
     avatarBroken.value = false
+    closePhotoEditor()
   }
   reader.onerror = () => {
     fileError.value = 'No se pudo leer la imagen seleccionada.'
@@ -216,11 +294,23 @@ function fillFormFromUser(user) {
   form.username = user?.username || ''
   form.email = user?.email || ''
   form.avatar_url = user?.avatar_url || ''
+
+  photoUrlDraft.value = form.avatar_url || ''
   avatarBroken.value = false
   clearLocalAvatarSelection()
 }
 
+function handleOutsideClick(event) {
+  if (!photoEditorOpen.value) return
+  if (!avatarEditorRef.value) return
+  if (!avatarEditorRef.value.contains(event.target)) {
+    closePhotoEditor()
+  }
+}
+
 onMounted(async () => {
+  document.addEventListener('click', handleOutsideClick)
+
   loading.value = true
   errorMessage.value = ''
   successMessage.value = ''
@@ -235,6 +325,10 @@ onMounted(async () => {
   loading.value = false
 })
 
+onBeforeUnmount(() => {
+  document.removeEventListener('click', handleOutsideClick)
+})
+
 async function handleSave() {
   saving.value = true
   errorMessage.value = ''
@@ -247,15 +341,8 @@ async function handleSave() {
     return
   }
 
-  const fullName = String(form.full_name || '').trim().replace(/\s+/g, ' ')
-  if (fullName.split(' ').filter(Boolean).length < 2) {
-    errorMessage.value = 'Debes indicar nombre y apellidos reales.'
-    saving.value = false
-    return
-  }
-
   const payload = {
-    full_name: fullName,
+    full_name: form.full_name,
     username: form.username,
     email: form.email,
     avatar_url: form.avatar_url,
@@ -314,6 +401,13 @@ async function handleSave() {
   background: var(--surface-soft);
 }
 
+.avatar-wrapper {
+  position: relative;
+  width: 68px;
+  height: 68px;
+  flex-shrink: 0;
+}
+
 .avatar {
   width: 68px;
   height: 68px;
@@ -321,6 +415,110 @@ async function handleSave() {
   object-fit: cover;
   border: 1px solid var(--border);
   background: #fff;
+}
+
+.avatar-overlay-btn {
+  position: absolute;
+  inset: 0;
+  border: none;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.62);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.avatar-wrapper:hover .avatar-overlay-btn,
+.avatar-wrapper:focus-within .avatar-overlay-btn {
+  opacity: 1;
+}
+
+.avatar-editor {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  width: 320px;
+  max-width: min(320px, 86vw);
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-md);
+  padding: 0.65rem;
+  z-index: 15;
+  overflow: hidden;
+}
+
+.editor-tabs {
+  display: flex;
+  gap: 0.45rem;
+  margin-bottom: 0.55rem;
+}
+
+.editor-tab {
+  border: 1px solid var(--border);
+  background: #f8fafc;
+  border-radius: 8px;
+  padding: 0.35rem 0.55rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.editor-tab.active {
+  border-color: #06b6d4;
+  background: rgba(6, 182, 212, 0.1);
+  color: #0f172a;
+}
+
+.editor-panel {
+  display: grid;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+/* Ajuste clave para que "Ningún archivo seleccionado" no se salga */
+.editor-panel input[type='file'] {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  font-size: 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.42rem 0.5rem;
+  background: #fff;
+  overflow: hidden;
+}
+
+.editor-input {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.5rem 0.6rem;
+  font-size: 0.88rem;
+}
+
+.editor-input:focus {
+  outline: 2px solid rgba(6, 182, 212, 0.22);
+  border-color: #06b6d4;
+}
+
+.editor-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.mini-btn {
+  border: none;
+  border-radius: 8px;
+  padding: 0.45rem 0.65rem;
+  font-weight: 700;
+  font-size: 0.82rem;
+  cursor: pointer;
+  color: #fff;
+  background: linear-gradient(135deg, #0ea5e9, #06b6d4);
 }
 
 .avatar-meta {
@@ -398,5 +596,16 @@ input:focus {
 
 .msg.success {
   color: #166534;
+}
+
+@media (max-width: 768px) {
+  .avatar-overlay-btn {
+    opacity: 1;
+    font-size: 0.68rem;
+  }
+
+  .avatar-editor {
+    width: min(320px, 86vw);
+  }
 }
 </style>
