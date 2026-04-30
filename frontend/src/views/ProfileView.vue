@@ -24,6 +24,17 @@
 
         <form @submit.prevent="handleSave">
           <div class="input-group">
+            <label for="fullName">Nombre y apellidos reales</label>
+            <input
+              id="fullName"
+              v-model.trim="form.full_name"
+              maxlength="100"
+              placeholder="Tu nombre completo"
+              required
+            />
+          </div>
+
+          <div class="input-group">
             <label for="username">Nombre de usuario</label>
             <input
               id="username"
@@ -99,6 +110,7 @@ const fileError = ref('')
 const avatarFileInputRef = ref(null)
 
 const form = reactive({
+  full_name: '',
   username: '',
   email: '',
   avatar_url: '',
@@ -200,6 +212,7 @@ function handleAvatarFileChange(event) {
 }
 
 function fillFormFromUser(user) {
+  form.full_name = user?.full_name || ''
   form.username = user?.username || ''
   form.email = user?.email || ''
   form.avatar_url = user?.avatar_url || ''
@@ -234,7 +247,15 @@ async function handleSave() {
     return
   }
 
+  const fullName = String(form.full_name || '').trim().replace(/\s+/g, ' ')
+  if (fullName.split(' ').filter(Boolean).length < 2) {
+    errorMessage.value = 'Debes indicar nombre y apellidos reales.'
+    saving.value = false
+    return
+  }
+
   const payload = {
+    full_name: fullName,
     username: form.username,
     email: form.email,
     avatar_url: form.avatar_url,
