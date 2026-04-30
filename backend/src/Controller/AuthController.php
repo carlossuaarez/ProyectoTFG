@@ -72,18 +72,18 @@ class AuthController {
         $twoFactorMode = $this->getTwoFactorMode();
         $userTwoFactorEnabled = (int)($user['two_factor_enabled'] ?? 1) === 1;
 
-        if ($userTwoFactorEnabled && $twoFactorMode === 'enforced') {
-            return $this->startTwoFactorChallenge($user, $res);
-        }
-
-        if ($userTwoFactorEnabled && $twoFactorMode === 'shadow') {
-            // En shadow intentamos enviar OTP pero no bloqueamos login.
-            $this->startTwoFactorChallenge($user, $res);
+        if (!$userTwoFactorEnabled || $twoFactorMode === 'disabled') {
             return $this->issueJwtResponse($user, $res);
         }
 
-        // disabled o user con 2FA desactivado
-        return $this->issueJwtResponse($user, $res);
+        if ($twoFactorMode === 'shadow') {
+            // No bloquear login ni contaminar la respuesta principal.
+            $this->triggerShadowTwoFactor($user);
+            return $this->issueJwtResponse($user, $res);
+        }
+
+        // enforced
+        return $this->startTwoFactorChallenge($user, $res);
     }
 
     public function googleLogin(Request $req, Response $res)
@@ -163,16 +163,16 @@ class AuthController {
             $twoFactorMode = $this->getTwoFactorMode();
             $userTwoFactorEnabled = (int)($user['two_factor_enabled'] ?? 1) === 1;
 
-            if ($userTwoFactorEnabled && $twoFactorMode === 'enforced') {
-                return $this->startTwoFactorChallenge($user, $res);
-            }
-
-            if ($userTwoFactorEnabled && $twoFactorMode === 'shadow') {
-                $this->startTwoFactorChallenge($user, $res);
+            if (!$userTwoFactorEnabled || $twoFactorMode === 'disabled') {
                 return $this->issueJwtResponse($user, $res);
             }
 
-            return $this->issueJwtResponse($user, $res);
+            if ($twoFactorMode === 'shadow') {
+                $this->triggerShadowTwoFactor($user);
+                return $this->issueJwtResponse($user, $res);
+            }
+
+            return $this->startTwoFactorChallenge($user, $res);
         } catch (Throwable $e) {
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
@@ -184,6 +184,10 @@ class AuthController {
 
     public function verify2fa(Request $req, Response $res)
     {
+        if ($this->getTwoFactorMode() !== 'enforced') {
+            return $this->json($res, ['error' => 'La verificación 2FA no está activa en este entorno.'], 400);
+        }
+
         $data = (array)$req->getParsedBody();
 
         $challengeId = trim((string)($data['challenge_id'] ?? ''));
@@ -209,8 +213,7 @@ class AuthController {
                 u.id AS id,
                 u.username,
                 u.role,
-                u.email,
-                u.two_factor_enabled
+                u.email
             FROM login_challenges lc
             INNER JOIN users u ON u.id = lc.user_id
             WHERE lc.public_id = ?
@@ -221,11 +224,6 @@ class AuthController {
 
         if (!$challenge) {
             return $this->json($res, ['error' => 'Desafío 2FA no encontrado'], 404);
-        }
-
-        if ((int)($challenge['two_factor_enabled'] ?? 0) === 0 || $this->getTwoFactorMode() !== 'enforced') {
-            error_log("Intento de verificar 2FA fuera de modo enforced para user_id={$challenge['user_id']}");
-            return $this->json($res, ['error' => 'Verificación no requerida o ya completada.'], 403);
         }
 
         if (!empty($challenge['consumed_at'])) {
@@ -430,6 +428,19 @@ class AuthController {
         ]);
     }
 
+    /**
+     * En modo shadow, ejecuta el flujo 2FA sin tocar la respuesta principal del login.
+     */
+    private function triggerShadowTwoFactor(array $user): void
+    {
+        try {
+            $dummyResponse = new \Slim\Psr7\Response();
+            $this->startTwoFactorChallenge($user, $dummyResponse);
+        } catch (Throwable $e) {
+            error_log('Shadow 2FA error: ' . $e->getMessage());
+        }
+    }
+
     private function issueJwtResponse(array $user, Response $res): Response
     {
         $jwt = $this->createJwtToken($user);
@@ -451,7 +462,7 @@ class AuthController {
     private function getUserById(int $id): ?array
     {
         $stmt = $this->db->prepare("
-            SELECT id, username, full_name, email, avatar_url, role, created_at, two_factor_enabled
+            SELECT id, username, full_name, email, avatar_url, role, created_at
             FROM users
             WHERE id = ?
             LIMIT 1
@@ -626,10 +637,10 @@ class AuthController {
 
             $select = $this->db->prepare(
                 "SELECT id, hits, reset_at
-                 FROM rate_limits
-                 WHERE bucket = ? AND key_hash = ?
-                 LIMIT 1
-                 FOR UPDATE"
+                FROM rate_limits
+                WHERE bucket = ? AND key_hash = ?
+                LIMIT 1
+                FOR UPDATE"
             );
             $select->execute([$bucket, $keyHash]);
             $row = $select->fetch(PDO::FETCH_ASSOC);
@@ -640,7 +651,7 @@ class AuthController {
             if (!$row) {
                 $insert = $this->db->prepare(
                     "INSERT INTO rate_limits (bucket, key_hash, hits, reset_at)
-                     VALUES (?, ?, 1, ?)"
+                    VALUES (?, ?, 1, ?)"
                 );
                 $insert->execute([$bucket, $keyHash, $newResetAt]);
                 $this->db->commit();
@@ -687,13 +698,11 @@ class AuthController {
         return $mode;
     }
 
-    private function isStrongPassword(string $password): bool
-    {
+    private function isStrongPassword(string $password): bool {
         return (bool)preg_match('/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/', $password);
     }
 
-    private function shouldBypassTwoFactorOnMailFailure(): bool
-    {
+    private function shouldBypassTwoFactorOnMailFailure(): bool {
         $bypassEnabled = filter_var(
             $_ENV['AUTH_DEV_BYPASS_2FA_ON_MAIL_FAILURE'] ?? 'false',
             FILTER_VALIDATE_BOOLEAN
