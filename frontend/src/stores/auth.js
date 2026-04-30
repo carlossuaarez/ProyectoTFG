@@ -84,6 +84,11 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  // Registro con Google: usa el mismo endpoint unificado del backend.
+  async function registerWithGoogle(idToken) {
+    return loginWithGoogle(idToken)
+  }
+
   async function verify2fa(code) {
     if (!pending2fa.value?.challengeId) {
       return { success: false, message: 'No hay verificación pendiente.' }
@@ -145,11 +150,15 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   // Registro + intento de login automático
-  async function register(username, email, password) {
+  async function register(username, fullName, email, password) {
     try {
-      await api.post('/register', { username, email, password })
+      await api.post('/register', {
+        username,
+        full_name: fullName,
+        email,
+        password,
+      })
 
-      // Reutiliza el mismo flujo de login (incluye soporte 2FA)
       return await login(email, password)
     } catch (err) {
       return {
@@ -176,6 +185,7 @@ export const useAuthStore = defineStore('auth', () => {
     isAuthenticated,
     login,
     loginWithGoogle,
+    registerWithGoogle,
     verify2fa,
     fetchMe,
     updateMe,

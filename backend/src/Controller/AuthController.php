@@ -22,11 +22,20 @@ class AuthController {
         $data = (array)$req->getParsedBody();
 
         $username = trim((string)($data['username'] ?? ''));
+        $fullName = $this->normalizeFullName((string)($data['full_name'] ?? ''));
         $email = strtolower(trim((string)($data['email'] ?? '')));
         $password = (string)($data['password'] ?? '');
 
-        if ($username === '' || $email === '' || $password === '') {
-            return $this->json($res, ['error' => 'Faltan campos'], 400);
+        if ($username === '' || $fullName === '' || $email === '' || $password === '') {
+            return $this->json($res, ['error' => 'Faltan campos (incluyendo nombre y apellidos)'], 400);
+        }
+
+        if (!$this->isValidUsername($username)) {
+            return $this->json($res, ['error' => 'Username inválido (3-30, letras, números o _)'], 400);
+        }
+
+        if (!$this->isValidRealFullName($fullName)) {
+            return $this->json($res, ['error' => 'Debes indicar nombre y apellidos reales (mínimo 2 palabras)'], 400);
         }
 
         if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
@@ -39,11 +48,19 @@ class AuthController {
             ], 400);
         }
 
+        if ($this->usernameExists($username)) {
+            return $this->json($res, ['error' => 'Ese nombre de usuario ya está en uso'], 409);
+        }
+
         $hash = password_hash($password, PASSWORD_DEFAULT);
 
         try {
-            $stmt = $this->db->prepare("INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)");
-            $stmt->execute([$username, $email, $hash]);
+            $stmt = $this->db->prepare("
+                INSERT INTO users (username, full_name, email, password_hash)
+                VALUES (?, ?, ?, ?)
+            ");
+            $stmt->execute([$username, $fullName, $email, $hash]);
+
             return $this->json($res, ['message' => 'Usuario registrado'], 201);
         } catch (PDOException $e) {
             return $this->json($res, ['error' => 'Usuario o email ya existe'], 409);
@@ -110,7 +127,7 @@ class AuthController {
         $googleId = (string)($googlePayload['sub'] ?? '');
         $email = strtolower(trim((string)($googlePayload['email'] ?? '')));
         $emailVerified = (bool)($googlePayload['email_verified'] ?? false);
-        $name = trim((string)($googlePayload['name'] ?? 'usuario_google'));
+        $name = $this->normalizeFullName((string)($googlePayload['name'] ?? ''));
         $picture = trim((string)($googlePayload['picture'] ?? ''));
 
         if ($googleId === '' || $email === '') {
@@ -129,6 +146,13 @@ class AuthController {
             $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$user) {
+                if (!$this->isValidRealFullName($name)) {
+                    $this->db->rollBack();
+                    return $this->json($res, [
+                        'error' => 'Google no proporcionó un nombre y apellidos válidos. Regístrate con formulario manual.'
+                    ], 400);
+                }
+
                 $username = $this->generateUniqueUsername($name);
                 $randomPassword = bin2hex(random_bytes(32));
                 $passwordHash = password_hash($randomPassword, PASSWORD_DEFAULT);
@@ -139,7 +163,7 @@ class AuthController {
                 ");
                 $insert->execute([
                     $username,
-                    ($name !== '' ? $name : null),
+                    $name,
                     $email,
                     ($picture !== '' ? $picture : null),
                     $passwordHash,
@@ -151,11 +175,29 @@ class AuthController {
                 $userStmt->execute([$newUserId]);
                 $user = $userStmt->fetch(PDO::FETCH_ASSOC);
             } else {
+                $updates = [];
+                $params = [];
+
                 if (empty($user['google_id'])) {
-                    $update = $this->db->prepare("UPDATE users SET google_id = ? WHERE id = ?");
-                    $update->execute([$googleId, $user['id']]);
-                    $user['google_id'] = $googleId;
+                    $updates[] = 'google_id = ?';
+                    $params[] = $googleId;
                 }
+
+                if ((empty($user['full_name']) || trim((string)$user['full_name']) === '') && $this->isValidRealFullName($name)) {
+                    $updates[] = 'full_name = ?';
+                    $params[] = $name;
+                }
+
+                if (!empty($updates)) {
+                    $params[] = $user['id'];
+                    $sql = 'UPDATE users SET ' . implode(', ', $updates) . ' WHERE id = ?';
+                    $update = $this->db->prepare($sql);
+                    $update->execute($params);
+                }
+
+                $refresh = $this->db->prepare("SELECT * FROM users WHERE id = ? LIMIT 1");
+                $refresh->execute([$user['id']]);
+                $user = $refresh->fetch(PDO::FETCH_ASSOC);
             }
 
             $this->db->commit();
@@ -302,7 +344,7 @@ class AuthController {
             : (string)$currentUser['email'];
 
         $fullName = array_key_exists('full_name', $data)
-            ? trim((string)$data['full_name'])
+            ? $this->normalizeFullName((string)$data['full_name'])
             : (string)($currentUser['full_name'] ?? '');
 
         $avatarUrl = array_key_exists('avatar_url', $data)
@@ -317,8 +359,16 @@ class AuthController {
             return $this->json($res, ['error' => 'Username inválido (3-30, letras, números o _)'], 400);
         }
 
+        if ($this->usernameExists($username, $userId)) {
+            return $this->json($res, ['error' => 'Ese nombre de usuario ya está en uso'], 409);
+        }
+
         if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
             return $this->json($res, ['error' => 'Email no válido'], 400);
+        }
+
+        if (array_key_exists('full_name', $data) && !$this->isValidRealFullName($fullName)) {
+            return $this->json($res, ['error' => 'Debes indicar nombre y apellidos reales (mínimo 2 palabras)'], 400);
         }
 
         if (mb_strlen($fullName) > 100) {
@@ -490,6 +540,49 @@ class AuthController {
         return (bool)preg_match('/^[a-zA-Z0-9_]{3,30}$/', $username);
     }
 
+    private function isValidRealFullName(string $fullName): bool
+    {
+        if ($fullName === '') return false;
+        if (mb_strlen($fullName) < 5 || mb_strlen($fullName) > 100) return false;
+
+        if (!preg_match('/^[\p{L}][\p{L}\p{M}\'\-\s]+$/u', $fullName)) {
+            return false;
+        }
+
+        $parts = preg_split('/\s+/u', $fullName, -1, PREG_SPLIT_NO_EMPTY);
+        if (!$parts || count($parts) < 2) {
+            return false;
+        }
+
+        foreach ($parts as $part) {
+            if (mb_strlen($part) < 2) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function normalizeFullName(string $fullName): string
+    {
+        $fullName = trim($fullName);
+        $fullName = preg_replace('/\s+/u', ' ', $fullName);
+        return (string)$fullName;
+    }
+
+    private function usernameExists(string $username, ?int $excludeUserId = null): bool
+    {
+        if ($excludeUserId !== null) {
+            $stmt = $this->db->prepare("SELECT id FROM users WHERE LOWER(username) = LOWER(?) AND id <> ? LIMIT 1");
+            $stmt->execute([$username, $excludeUserId]);
+        } else {
+            $stmt = $this->db->prepare("SELECT id FROM users WHERE LOWER(username) = LOWER(?) LIMIT 1");
+            $stmt->execute([$username]);
+        }
+
+        return (bool)$stmt->fetch(PDO::FETCH_ASSOC);
+    }
+
     private function isValidAvatarUrl(string $url): bool
     {
         if ($url === '') return true;
@@ -592,10 +685,7 @@ class AuthController {
         $counter = 1;
 
         while (true) {
-            $stmt = $this->db->prepare("SELECT id FROM users WHERE username = ? LIMIT 1");
-            $stmt->execute([$candidate]);
-
-            if (!$stmt->fetch(PDO::FETCH_ASSOC)) {
+            if (!$this->usernameExists($candidate)) {
                 return $candidate;
             }
 
