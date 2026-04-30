@@ -2,8 +2,8 @@
   <section class="page">
     <header class="page-header">
       <div>
-        <h1>Torneos disponibles</h1>
-        <p>Explora competiciones deportivas y de e-sports.</p>
+        <h1>Buscar torneos</h1>
+        <p>Filtra y encuentra torneos públicos por categoría, formato o texto.</p>
       </div>
 
       <router-link v-if="token" to="/create-tournament" class="create-btn">
@@ -54,7 +54,7 @@
     </div>
 
     <div v-else class="grid-container">
-      <TournamentCard v-for="t in filteredTournaments" :key="t.id" :tournament="normalizeTournament(t)" />
+      <TournamentCard v-for="t in filteredTournaments" :key="t.id" :tournament="t" />
     </div>
   </section>
 </template>
@@ -99,7 +99,7 @@ function normalizeTournament(t) {
     is_online: Number(t.is_online || 0),
     visibility: t.visibility || 'public',
     created_by: Number(t.created_by || 0),
-    created_by_username: String(t.created_by_username || '')
+    created_by_username: String(t.created_by_username || ''),
   }
 }
 
@@ -108,7 +108,7 @@ async function fetchTournaments() {
   error.value = ''
   try {
     const res = await api.get('/tournaments')
-    tournaments.value = Array.isArray(res.data) ? res.data : []
+    tournaments.value = Array.isArray(res.data) ? res.data.map(normalizeTournament) : []
   } catch (err) {
     error.value = err.response?.data?.error || 'No se pudieron cargar los torneos.'
   } finally {
@@ -122,7 +122,6 @@ const filteredTournaments = computed(() => {
   const q = normalizeText(searchTerm.value)
 
   return tournaments.value
-    .map(normalizeTournament)
     .filter((t) => (filterType.value === 'all' ? true : t.type === filterType.value))
     .filter((t) => (filterFormat.value === 'all' ? true : t.format === filterFormat.value))
     .filter((t) => {
@@ -133,9 +132,11 @@ const filteredTournaments = computed(() => {
       return haystack.includes(q)
     })
     .sort((a, b) => {
-      const da = `${a.start_date || ''} ${String(a.start_time || '00:00:00').slice(0, 8)}`
-      const db = `${b.start_date || ''} ${String(b.start_time || '00:00:00').slice(0, 8)}`
-      return new Date(da) - new Date(db)
+      const da = new Date(`${a.start_date || ''}T${String(a.start_time || '00:00:00').slice(0, 8)}`)
+      const db = new Date(`${b.start_date || ''}T${String(b.start_time || '00:00:00').slice(0, 8)}`)
+      const ta = Number.isNaN(da.getTime()) ? Number.MAX_SAFE_INTEGER : da.getTime()
+      const tb = Number.isNaN(db.getTime()) ? Number.MAX_SAFE_INTEGER : db.getTime()
+      return ta - tb
     })
 })
 </script>
@@ -207,7 +208,6 @@ const filteredTournaments = computed(() => {
   background: #f8fafc;
   border: 1px solid var(--border);
   border-radius: 10px;
-  text-align: center;
 }
 
 .count {

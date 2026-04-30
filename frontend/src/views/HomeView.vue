@@ -9,7 +9,7 @@
       </p>
 
       <div class="hero-actions">
-        <router-link to="/tournaments" class="btn btn-primary">Ver torneos</router-link>
+        <router-link to="/search-tournaments" class="btn btn-primary">Buscar torneos</router-link>
         <router-link to="/create-tournament" class="btn btn-secondary">Crear torneo</router-link>
       </div>
 
@@ -33,21 +33,6 @@
 
         <p v-if="privateCodeError" class="private-msg error">{{ privateCodeError }}</p>
       </section>
-
-      <div class="stats-grid">
-        <article>
-          <strong>+120</strong>
-          <span>Torneos creados (demo)</span>
-        </article>
-        <article>
-          <strong>+800</strong>
-          <span>Equipos inscritos (demo)</span>
-        </article>
-        <article>
-          <strong>24/7</strong>
-          <span>Acceso web desde cualquier dispositivo</span>
-        </article>
-      </div>
     </div>
 
     <div class="hero-panel">
@@ -64,29 +49,44 @@
     </div>
   </section>
 
-  <section class="features">
-    <h2>Funcionalidades clave</h2>
-    <div class="feature-grid">
-      <article class="feature-card">
-        <h3>Gestión unificada</h3>
-        <p>Organiza torneos deportivos y e-sports en una misma plataforma.</p>
-      </article>
-      <article class="feature-card">
-        <h3>Control de plazas</h3>
-        <p>Define máximo de equipos y evita sobreinscripciones.</p>
-      </article>
-      <article class="feature-card">
-        <h3>Panel de administración</h3>
-        <p>Supervisa torneos, revisa datos y elimina eventos desde un dashboard.</p>
-      </article>
+  <section class="tournaments-block">
+    <div class="section-head">
+      <h2>Torneos destacados</h2>
+      <router-link to="/search-tournaments">Ver todos</router-link>
+    </div>
+
+    <div v-if="loading" class="state-box">Cargando torneos...</div>
+    <div v-else-if="error" class="state-box state-error">{{ error }}</div>
+    <div v-else-if="featuredTournaments.length === 0" class="state-box">
+      No hay torneos destacados todavía.
+    </div>
+    <div v-else class="cards-grid">
+      <TournamentCard v-for="t in featuredTournaments" :key="`featured-${t.id}`" :tournament="t" />
+    </div>
+  </section>
+
+  <section class="tournaments-block">
+    <div class="section-head">
+      <h2>Próximos torneos</h2>
+      <router-link to="/search-tournaments">Ir a buscador</router-link>
+    </div>
+
+    <div v-if="loading" class="state-box">Cargando torneos...</div>
+    <div v-else-if="error" class="state-box state-error">{{ error }}</div>
+    <div v-else-if="homeTournaments.length === 0" class="state-box">
+      No hay torneos públicos disponibles.
+    </div>
+    <div v-else class="cards-grid">
+      <TournamentCard v-for="t in homeTournaments" :key="`home-${t.id}`" :tournament="t" />
     </div>
   </section>
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../services/api'
+import TournamentCard from '../components/TournamentCard.vue'
 
 const ACCESS_CODE_STORAGE_KEY = 'tourneyhub_private_codes'
 
@@ -94,6 +94,79 @@ const router = useRouter()
 const privateCodeInput = ref('')
 const privateCodeLoading = ref(false)
 const privateCodeError = ref('')
+
+const tournaments = ref([])
+const loading = ref(true)
+const error = ref('')
+
+function normalizeText(value) {
+  return String(value || '').trim().toLowerCase()
+}
+
+function normalizeTournament(t) {
+  const teamsCount = Number(t.teams_count ?? 0)
+  const maxTeams = Number(t.max_teams || 0)
+  return {
+    id: t.id,
+    name: t.name || 'Torneo sin nombre',
+    description: t.description || '',
+    game: t.game || '',
+    type: t.type || 'sports',
+    max_teams: maxTeams,
+    format: t.format || 'single_elim',
+    start_date: t.start_date || null,
+    start_time: t.start_time || '00:00:00',
+    prize: t.prize || '',
+    location_name: t.location_name || '',
+    is_online: Number(t.is_online || 0),
+    visibility: t.visibility || 'public',
+    created_by: Number(t.created_by || 0),
+    created_by_username: String(t.created_by_username || ''),
+    teams_count: teamsCount,
+    is_full: Number(t.is_full ?? (maxTeams > 0 && teamsCount >= maxTeams ? 1 : 0)),
+  }
+}
+
+function startTimestamp(t) {
+  const datePart = String(t.start_date || '').trim()
+  if (!datePart) return Number.MAX_SAFE_INTEGER
+  const timePart = String(t.start_time || '00:00:00').slice(0, 8)
+  const parsed = new Date(`${datePart}T${timePart}`)
+  return Number.isNaN(parsed.getTime()) ? Number.MAX_SAFE_INTEGER : parsed.getTime()
+}
+
+const normalizedTournaments = computed(() => tournaments.value.map(normalizeTournament))
+
+const featuredTournaments = computed(() => {
+  return [...normalizedTournaments.value]
+    .filter((t) => t.visibility === 'public')
+    .sort((a, b) => {
+      const teamsCmp = Number(b.teams_count || 0) - Number(a.teams_count || 0)
+      if (teamsCmp !== 0) return teamsCmp
+      return startTimestamp(a) - startTimestamp(b)
+    })
+    .slice(0, 3)
+})
+
+const homeTournaments = computed(() => {
+  return [...normalizedTournaments.value]
+    .filter((t) => t.visibility === 'public')
+    .sort((a, b) => startTimestamp(a) - startTimestamp(b))
+    .slice(0, 9)
+})
+
+async function fetchHomeTournaments() {
+  loading.value = true
+  error.value = ''
+  try {
+    const res = await api.get('/tournaments')
+    tournaments.value = Array.isArray(res.data) ? res.data : []
+  } catch (err) {
+    error.value = err.response?.data?.error || 'No se pudieron cargar los torneos de inicio.'
+  } finally {
+    loading.value = false
+  }
+}
 
 function sanitizeCode(value) {
   return String(value || '').trim().replace(/[^a-zA-Z0-9]/g, '').toUpperCase()
@@ -141,6 +214,8 @@ async function resolvePrivateCode() {
     privateCodeLoading.value = false
   }
 }
+
+onMounted(fetchHomeTournaments)
 </script>
 
 <style scoped>
@@ -148,7 +223,7 @@ async function resolvePrivateCode() {
   display: grid;
   grid-template-columns: 2fr 1fr;
   gap: 1.25rem;
-  margin-bottom: 2rem;
+  margin-bottom: 1.3rem;
 }
 
 .hero-content,
@@ -157,7 +232,7 @@ async function resolvePrivateCode() {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow-sm);
-  padding: 1.4rem;
+  padding: 1.25rem;
 }
 
 .eyebrow {
@@ -182,7 +257,7 @@ async function resolvePrivateCode() {
 }
 
 .hero-actions {
-  margin-top: 1.2rem;
+  margin-top: 1rem;
   display: flex;
   gap: 0.75rem;
   flex-wrap: wrap;
@@ -222,7 +297,6 @@ async function resolvePrivateCode() {
 .private-access-card p {
   margin: 0 0 0.55rem;
   color: #475569;
-  max-width: none;
 }
 
 .private-access-form {
@@ -255,38 +329,11 @@ async function resolvePrivateCode() {
   cursor: not-allowed;
 }
 
-.private-msg {
+.private-msg.error {
   margin-top: 0.45rem;
+  color: #b91c1c;
   font-size: 0.88rem;
   font-weight: 600;
-}
-
-.private-msg.error {
-  color: #b91c1c;
-}
-
-.stats-grid {
-  margin-top: 1.15rem;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(110px, 1fr));
-  gap: 0.7rem;
-}
-
-.stats-grid article {
-  background: #f8fafc;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 0.7rem;
-}
-
-.stats-grid strong {
-  display: block;
-  font-size: 1.1rem;
-}
-
-.stats-grid span {
-  color: var(--muted);
-  font-size: 0.85rem;
 }
 
 .hero-panel h3 {
@@ -305,7 +352,6 @@ async function resolvePrivateCode() {
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 0.55rem 0.7rem;
-  color: #0f172a;
 }
 
 .panel-note {
@@ -313,39 +359,47 @@ async function resolvePrivateCode() {
   font-size: 0.9rem;
 }
 
-.features {
+.tournaments-block {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow-sm);
-  padding: 1.25rem;
-}
-
-.features h2 {
+  padding: 1rem;
   margin-bottom: 1rem;
 }
 
-.feature-grid {
+.section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.7rem;
+  margin-bottom: 0.8rem;
+}
+
+.section-head a {
+  text-decoration: none;
+  color: #0284c7;
+  font-weight: 700;
+}
+
+.cards-grid {
   display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 0.9rem;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.feature-card {
-  background: var(--surface-soft);
-  border: 1px solid var(--border);
-  border-radius: 12px;
+.state-box {
+  border: 1px dashed #cbd5e1;
+  border-radius: 10px;
   padding: 0.9rem;
+  text-align: center;
+  color: #64748b;
 }
 
-.feature-card h3 {
-  margin-bottom: 0.45rem;
-  font-size: 1rem;
-}
-
-.feature-card p {
-  color: var(--muted);
-  font-size: 0.92rem;
+.state-error {
+  border-color: #fecaca;
+  color: #991b1b;
+  background: #fff1f2;
 }
 
 @media (max-width: 1024px) {
@@ -355,14 +409,6 @@ async function resolvePrivateCode() {
 }
 
 @media (max-width: 768px) {
-  .feature-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .stats-grid {
-    grid-template-columns: 1fr;
-  }
-
   .private-access-form {
     flex-direction: column;
   }

@@ -18,9 +18,11 @@
       </button>
 
       <nav class="nav-links" :class="{ open: isMenuOpen }">
-        <router-link to="/tournaments">Torneos</router-link>
+        <router-link to="/search-tournaments">Buscar torneos</router-link>
 
         <template v-if="token">
+          <router-link to="/my-tournaments">Mis torneos</router-link>
+
           <router-link to="/create-tournament" class="pill pill-primary action-link">
             <Plus class="pill-icon" />
             Crear torneo

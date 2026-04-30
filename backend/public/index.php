@@ -9,6 +9,7 @@ require __DIR__ . '/../src/Service/MailService.php';
 require __DIR__ . '/../src/Controller/AuthController.php';
 require __DIR__ . '/../src/Controller/TournamentController.php';
 require __DIR__ . '/../src/Controller/AdminController.php';
+require __DIR__ . '/../src/Controller/MyTournamentsController.php';
 require __DIR__ . '/../src/Middleware/AuthMiddleware.php';
 require __DIR__ . '/../src/Middleware/RateLimitMiddleware.php';
 
@@ -109,6 +110,7 @@ $mailService = new MailService();
 $authController = new AuthController($db, $mailService);
 $tournamentController = new TournamentController($db);
 $adminController = new AdminController($db);
+$myTournamentsController = new MyTournamentsController($db);
 $authMiddleware = new AuthMiddleware();
 
 // ---- Rate limiters auth ----
@@ -219,26 +221,30 @@ $app->post('/api/2fa/verify', [$authController, 'verify2fa'])
 // Rutas públicas torneos
 $app->get('/api/tournaments', [$tournamentController, 'getAll']);
 
-$app->get('/api/tournaments/{id}', [$tournamentController, 'getById'])
+$app->get('/api/tournaments/{id:[0-9]+}', [$tournamentController, 'getById'])
     ->add($tournamentDetailLimiter);
 
 $app->post('/api/tournaments/private/resolve', [$tournamentController, 'resolvePrivateByCode'])
     ->add($privateCodeResolveLimiter);
 
-// Rutas protegidas
-$app->group('/api', function ($group) use ($authController, $tournamentController, $adminController, $tournamentJoinLimiter) {
-    // Perfil
+$app->group('/api', function ($group) use (
+    $authController,
+    $tournamentController,
+    $adminController,
+    $myTournamentsController,
+    $tournamentJoinLimiter
+) {
     $group->get('/me', [$authController, 'me']);
     $group->put('/me', [$authController, 'updateProfile']);
 
-    // Torneos
+    $group->get('/tournaments/mine', [$myTournamentsController, 'getMine']);
     $group->post('/tournaments', [$tournamentController, 'create']);
-    $group->put('/tournaments/{id}', [$tournamentController, 'update']);
-    $group->post('/tournaments/{id}/join', [$tournamentController, 'join'])->add($tournamentJoinLimiter);
+    $group->put('/tournaments/{id:[0-9]+}', [$tournamentController, 'update']);
+    $group->post('/tournaments/{id:[0-9]+}/join', [$tournamentController, 'join'])->add($tournamentJoinLimiter);
 
     // Admin
     $group->get('/admin/tournaments', [$adminController, 'getAllTournaments']);
-    $group->delete('/admin/tournaments/{id}', [$adminController, 'deleteTournament']);
+    $group->delete('/admin/tournaments/{id:[0-9]+}', [$adminController, 'deleteTournament']);
 })->add($authMiddleware);
 
 $app->run();

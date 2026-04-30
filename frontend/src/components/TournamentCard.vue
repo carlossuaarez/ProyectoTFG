@@ -14,6 +14,10 @@
     <p class="creator">Creado por: <strong>{{ creatorLabel }}</strong></p>
     <p class="description">{{ tournament.description || 'Sin descripción' }}</p>
 
+    <p v-if="remainingSlots === 1 && !isFull" class="low-slots-warning">
+      Quedan pocas plazas: solo 1 equipo.
+    </p>
+
     <div class="meta-grid">
       <div>
         <span class="label">Inicio</span>
@@ -44,8 +48,8 @@ import { computed } from 'vue'
 const props = defineProps({
   tournament: {
     type: Object,
-    required: true
-  }
+    required: true,
+  },
 })
 
 const creatorLabel = computed(() => {
@@ -57,10 +61,14 @@ const creatorLabel = computed(() => {
 })
 
 const teamsCount = computed(() => Number(props.tournament?.teams_count || 0))
+const maxTeams = computed(() => Number(props.tournament?.max_teams || 0))
 const isFull = computed(() => {
   if (Number(props.tournament?.is_full || 0) === 1) return true
-  const maxTeams = Number(props.tournament?.max_teams || 0)
-  return maxTeams > 0 && teamsCount.value >= maxTeams
+  return maxTeams.value > 0 && teamsCount.value >= maxTeams.value
+})
+const remainingSlots = computed(() => {
+  if (maxTeams.value <= 0) return 0
+  return Math.max(0, maxTeams.value - teamsCount.value)
 })
 
 function formatDateTime(date, time) {
@@ -82,7 +90,7 @@ function formatDateTime(date, time) {
   padding: 1rem;
   display: flex;
   flex-direction: column;
-  min-height: 320px;
+  min-height: 330px;
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
@@ -147,7 +155,18 @@ h3 {
 .description {
   color: #334155;
   font-size: 0.92rem;
+  margin-bottom: 0.7rem;
+}
+
+.low-slots-warning {
   margin-bottom: 0.8rem;
+  border: 1px solid #fcd34d;
+  background: #fffbeb;
+  color: #92400e;
+  border-radius: 8px;
+  padding: 0.42rem 0.55rem;
+  font-size: 0.82rem;
+  font-weight: 700;
 }
 
 .meta-grid {

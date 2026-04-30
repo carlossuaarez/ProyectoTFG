@@ -8,6 +8,7 @@ import CreateTournamentView from '../views/CreateTournamentView.vue'
 import AdminDashboardView from '../views/AdminDashboardView.vue'
 import ProfileView from '../views/ProfileView.vue'
 import SettingsView from '../views/SettingsView.vue'
+import MyTournamentsView from '../views/MyTournamentsView.vue'
 
 function parseJwt(token) {
   try {
@@ -43,7 +44,7 @@ function getAuthState() {
 
   return {
     isAuthenticated: true,
-    isAdmin: payload.role === 'admin'
+    isAdmin: payload.role === 'admin',
   }
 }
 
@@ -51,18 +52,23 @@ const routes = [
   { path: '/', component: HomeView },
   { path: '/login', component: LoginView, meta: { guestOnly: true } },
   { path: '/register', component: RegisterView, meta: { guestOnly: true } },
-  { path: '/tournaments', component: TournamentsView },
+
+  { path: '/search-tournaments', component: TournamentsView },
+  { path: '/tournaments', redirect: '/search-tournaments' },
   { path: '/tournaments/:id', component: TournamentDetailView, props: true },
+
+  { path: '/my-tournaments', component: MyTournamentsView, meta: { requiresAuth: true } },
   { path: '/create-tournament', component: CreateTournamentView, meta: { requiresAuth: true } },
   { path: '/profile', component: ProfileView, meta: { requiresAuth: true } },
   { path: '/settings', component: SettingsView, meta: { requiresAuth: true } },
   { path: '/admin', component: AdminDashboardView, meta: { requiresAuth: true, requiresAdmin: true } },
-  { path: '/:pathMatch(.*)*', redirect: '/' }
+
+  { path: '/:pathMatch(.*)*', redirect: '/' },
 ]
 
 const router = createRouter({
   history: createWebHistory(),
-  routes
+  routes,
 })
 
 router.beforeEach((to) => {
@@ -70,20 +76,20 @@ router.beforeEach((to) => {
 
   // Evitar que usuarios logueados entren a login/register
   if (to.meta.guestOnly && auth.isAuthenticated) {
-    return { path: '/tournaments' }
+    return { path: '/search-tournaments' }
   }
 
   // Rutas protegidas
   if (to.meta.requiresAuth && !auth.isAuthenticated) {
     return {
       path: '/login',
-      query: { redirect: to.fullPath }
+      query: { redirect: to.fullPath },
     }
   }
 
   // Solo admin
   if (to.meta.requiresAdmin && !auth.isAdmin) {
-    return { path: '/tournaments' }
+    return { path: '/search-tournaments' }
   }
 
   return true

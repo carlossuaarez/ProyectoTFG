@@ -1,12 +1,72 @@
 <template>
   <section class="form-page">
     <article class="form-card">
-      <header class="form-header">
+      <header class="form-header" v-if="!createdTournament">
         <h1>Crear nuevo torneo</h1>
         <p>Configura la competición con categoría, ubicación y acceso público/privado.</p>
       </header>
 
-      <form @submit.prevent="createTournament">
+      <section v-if="createdTournament" class="created-view">
+        <h2>¡Torneo creado correctamente!</h2>
+        <p class="created-subtitle">
+          Ya puedes compartirlo fácilmente con su enlace y código QR.
+        </p>
+
+        <div class="created-grid">
+          <div class="created-item">
+            <span>Nombre</span>
+            <strong>{{ createdTournament.name }}</strong>
+          </div>
+          <div class="created-item">
+            <span>Categoría</span>
+            <strong>{{ createdTournament.type === 'esports' ? 'e-Sports' : 'Deporte' }}</strong>
+          </div>
+          <div class="created-item">
+            <span>Disciplina</span>
+            <strong>{{ createdTournament.game }}</strong>
+          </div>
+          <div class="created-item">
+            <span>Inicio</span>
+            <strong>{{ formatDateTime(createdTournament.start_date, createdTournament.start_time) }}</strong>
+          </div>
+          <div class="created-item">
+            <span>Formato</span>
+            <strong>{{ createdTournament.format === 'single_elim' ? 'Eliminatoria' : 'Liga' }}</strong>
+          </div>
+          <div class="created-item">
+            <span>Ubicación</span>
+            <strong>{{ createdTournament.is_online ? 'Online' : (createdTournament.location_name || 'Pendiente') }}</strong>
+          </div>
+          <div class="created-item">
+            <span>Visibilidad</span>
+            <strong>{{ createdTournament.visibility === 'private' ? 'Privado' : 'Público' }}</strong>
+          </div>
+          <div class="created-item">
+            <span>Equipos máx.</span>
+            <strong>{{ createdTournament.max_teams }}</strong>
+          </div>
+        </div>
+
+        <div v-if="createdPrivateCode" class="private-code-box">
+          Código privado: <strong>{{ createdPrivateCode }}</strong>
+        </div>
+
+        <p v-if="createdTournamentLink" class="created-link">
+          Enlace:
+          <a :href="createdTournamentLink" target="_blank" rel="noopener noreferrer">{{ createdTournamentLink }}</a>
+        </p>
+
+        <img v-if="qrImageUrl" class="qr-image" :src="qrImageUrl" alt="QR del torneo" />
+
+        <div class="created-actions">
+          <router-link class="open-link" :to="createdTournamentPath">Abrir torneo</router-link>
+          <button type="button" class="ghost-btn" @click="startAnotherTournament">
+            Crear otro torneo
+          </button>
+        </div>
+      </section>
+
+      <form v-else @submit.prevent="createTournament">
         <fieldset>
           <legend>Categoría y disciplina</legend>
 
@@ -150,26 +210,6 @@
           {{ loading ? 'Creando torneo...' : 'Crear torneo' }}
         </button>
       </form>
-
-      <section v-if="createdTournamentId" class="result-box">
-        <h3>Torneo creado</h3>
-
-        <p v-if="createdPrivateCode">
-          Código privado: <strong>{{ createdPrivateCode }}</strong>
-        </p>
-        <p v-if="createdPrivateCode" class="security-note">
-          Código generado automáticamente y guardado en esta sesión.
-        </p>
-
-        <p v-if="createdTournamentLink">
-          Enlace directo:
-          <a :href="createdTournamentLink" target="_blank" rel="noopener noreferrer">{{ createdTournamentLink }}</a>
-        </p>
-
-        <img v-if="qrImageUrl" class="qr-image" :src="qrImageUrl" alt="QR del torneo" />
-
-        <router-link class="open-link" :to="createdTournamentPath">Abrir torneo</router-link>
-      </section>
     </article>
   </section>
 </template>
@@ -179,13 +219,14 @@ import { ref, computed, watch } from 'vue'
 import api from '../services/api'
 
 const ACCESS_CODE_STORAGE_KEY = 'tourneyhub_private_codes'
+const MIN_CREATE_DELAY_MS = 1700
 
 const sportsPopular = [
   { value: 'Fútbol', label: 'Fútbol' },
   { value: 'Baloncesto', label: 'Baloncesto' },
   { value: 'Tenis', label: 'Tenis' },
   { value: 'Pádel', label: 'Pádel' },
-  { value: 'Voleibol', label: 'Voleibol' }
+  { value: 'Voleibol', label: 'Voleibol' },
 ]
 
 const esportsPopular = [
@@ -193,7 +234,7 @@ const esportsPopular = [
   { value: 'EA Sports FC', label: 'FIFA / EA FC' },
   { value: 'League of Legends', label: 'League of Legends' },
   { value: 'Valorant', label: 'Valorant' },
-  { value: 'Counter-Strike 2', label: 'Counter-Strike 2' }
+  { value: 'Counter-Strike 2', label: 'Counter-Strike 2' },
 ]
 
 function getTodayLocalYmd() {
@@ -209,6 +250,10 @@ function saveAccessCodeForTournament(tournamentId, code) {
     map[String(tournamentId)] = code
     sessionStorage.setItem(ACCESS_CODE_STORAGE_KEY, JSON.stringify(map))
   } catch {}
+}
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 const todayYmd = getTodayLocalYmd()
@@ -238,15 +283,23 @@ const loading = ref(false)
 const errorMessage = ref('')
 const successMessage = ref('')
 
-const createdTournamentId = ref(null)
+const createdTournament = ref(null)
 const createdPrivateCode = ref('')
 
-const disciplineOptions = computed(() => category.value === 'esports' ? esportsPopular : sportsPopular)
+const disciplineOptions = computed(() => (category.value === 'esports' ? esportsPopular : sportsPopular))
 
 const resolvedGame = computed(() => {
   if (selectedDiscipline.value === 'custom') return customDiscipline.value.trim()
   return selectedDiscipline.value.trim()
 })
+
+const createdTournamentPath = computed(() => (createdTournament.value ? `/tournaments/${createdTournament.value.id}` : ''))
+const createdTournamentLink = computed(() =>
+  createdTournament.value ? `${window.location.origin}/tournaments/${createdTournament.value.id}` : ''
+)
+const qrImageUrl = computed(() =>
+  createdTournamentLink.value ? `https://quickchart.io/qr?size=300&text=${encodeURIComponent(createdTournamentLink.value)}` : ''
+)
 
 const mapEmbedUrl = computed(() => {
   const lat = Number(location_lat.value)
@@ -256,10 +309,6 @@ const mapEmbedUrl = computed(() => {
   const bbox = `${lng - delta},${lat - delta},${lng + delta},${lat + delta}`
   return `https://www.openstreetmap.org/export/embed.html?bbox=${encodeURIComponent(bbox)}&layer=mapnik&marker=${encodeURIComponent(`${lat},${lng}`)}`
 })
-
-const createdTournamentPath = computed(() => createdTournamentId.value ? `/tournaments/${createdTournamentId.value}` : '')
-const createdTournamentLink = computed(() => createdTournamentId.value ? `${window.location.origin}/tournaments/${createdTournamentId.value}` : '')
-const qrImageUrl = computed(() => createdTournamentLink.value ? `https://quickchart.io/qr?size=260&text=${encodeURIComponent(createdTournamentLink.value)}` : '')
 
 watch(category, (newValue) => {
   selectedDiscipline.value = ''
@@ -321,16 +370,36 @@ function validateBeforeSubmit() {
   return ''
 }
 
+function formatDateTime(date, time) {
+  if (!date) return '-'
+  const parsed = new Date(date)
+  if (Number.isNaN(parsed.getTime())) return '-'
+  const datePart = parsed.toLocaleDateString('es-ES')
+  const hhmm = String(time || '00:00:00').slice(0, 5)
+  return `${datePart} · ${hhmm}`
+}
+
+function startAnotherTournament() {
+  createdTournament.value = null
+  createdPrivateCode.value = ''
+  successMessage.value = ''
+  errorMessage.value = ''
+}
+
 async function createTournament() {
+  const startedAt = Date.now()
+
   loading.value = true
   errorMessage.value = ''
   successMessage.value = ''
-  createdTournamentId.value = null
+  createdTournament.value = null
   createdPrivateCode.value = ''
 
   const validationError = validateBeforeSubmit()
   if (validationError) {
     errorMessage.value = validationError
+    const elapsed = Date.now() - startedAt
+    if (elapsed < MIN_CREATE_DELAY_MS) await wait(MIN_CREATE_DELAY_MS - elapsed)
     loading.value = false
     return
   }
@@ -352,25 +421,35 @@ async function createTournament() {
     location_name: isEsports ? 'Online' : location_name.value.trim(),
     location_address: isEsports ? 'Online' : location_address.value.trim(),
     location_lat: isEsports ? null : Number(location_lat.value),
-    location_lng: isEsports ? null : Number(location_lng.value)
+    location_lng: isEsports ? null : Number(location_lng.value),
   }
 
   try {
     const res = await api.post('/tournaments', payload)
+    const newId = Number(res.data?.id || 0)
+    const privateCode = String(res.data?.private_access_code || '')
 
-    createdTournamentId.value = res.data?.id || null
-    createdPrivateCode.value = res.data?.private_access_code || ''
-
-    if (createdTournamentId.value && createdPrivateCode.value) {
-      saveAccessCodeForTournament(createdTournamentId.value, createdPrivateCode.value)
+    if (!newId) {
+      throw new Error('No se recibió ID del torneo')
     }
 
-    successMessage.value = createdPrivateCode.value
-      ? 'Torneo privado creado. Código automático guardado en esta sesión.'
-      : 'Torneo creado correctamente.'
+    if (privateCode) {
+      saveAccessCodeForTournament(newId, privateCode)
+    }
+
+    createdPrivateCode.value = privateCode
+    createdTournament.value = {
+      id: newId,
+      ...payload,
+    }
+    successMessage.value = 'Torneo creado correctamente.'
   } catch (err) {
     errorMessage.value = err.response?.data?.error || 'Error al crear el torneo.'
   } finally {
+    const elapsed = Date.now() - startedAt
+    if (elapsed < MIN_CREATE_DELAY_MS) {
+      await wait(MIN_CREATE_DELAY_MS - elapsed)
+    }
     loading.value = false
   }
 }
@@ -534,51 +613,95 @@ textarea {
   color: #166534;
 }
 
-.result-box {
-  margin-top: 1rem;
+/* Vista completa tras crear */
+.created-view {
   border: 1px solid #bbf7d0;
   background: #f0fdf4;
   border-radius: 12px;
-  padding: 0.85rem;
+  padding: 1rem;
 }
 
-.result-box h3 {
-  margin-bottom: 0.45rem;
+.created-view h2 {
+  margin-bottom: 0.35rem;
 }
 
-.result-box a {
+.created-subtitle {
+  color: #166534;
+  margin-bottom: 0.8rem;
+}
+
+.created-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem;
+  margin-bottom: 0.8rem;
+}
+
+.created-item {
+  border: 1px solid #d1fae5;
+  background: #ffffff;
+  border-radius: 10px;
+  padding: 0.55rem 0.65rem;
+}
+
+.created-item span {
+  display: block;
+  color: #64748b;
+  font-size: 0.8rem;
+}
+
+.private-code-box {
+  margin-bottom: 0.65rem;
+  border: 1px solid #fed7aa;
+  background: #fff7ed;
+  color: #9a3412;
+  border-radius: 10px;
+  padding: 0.6rem 0.7rem;
+  font-weight: 700;
+}
+
+.created-link {
+  margin-bottom: 0.65rem;
+}
+
+.created-link a {
   color: #0369a1;
   word-break: break-all;
 }
 
 .qr-image {
-  margin-top: 0.7rem;
-  width: 220px;
+  width: 260px;
   max-width: 100%;
   border: 1px solid #d1d5db;
   border-radius: 8px;
   background: #fff;
+  display: block;
+  margin-bottom: 0.8rem;
+}
+
+.created-actions {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
 }
 
 .open-link {
-  margin-top: 0.7rem;
   display: inline-block;
   text-decoration: none;
   border: 1px solid #0284c7;
   color: #0369a1;
   border-radius: 8px;
-  padding: 0.45rem 0.7rem;
+  padding: 0.45rem 0.75rem;
   font-weight: 700;
-}
-
-.security-note {
-  margin-top: 0.25rem;
-  color: #7c2d12;
-  font-size: 0.9rem;
+  background: #fff;
 }
 
 @media (max-width: 760px) {
   .input-row {
+    grid-template-columns: 1fr;
+  }
+
+  .created-grid {
     grid-template-columns: 1fr;
   }
 }
