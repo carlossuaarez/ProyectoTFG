@@ -31,6 +31,7 @@ class RateLimitMiddleware
         $remaining = $this->maxRequests - 1;
 
         try {
+            // Purga ocasional de expirados.
             if (random_int(1, 100) === 1) {
                 $this->purgeExpired();
             }
@@ -91,7 +92,7 @@ class RateLimitMiddleware
                 $this->db->rollBack();
             }
             error_log('Rate limiter error: ' . $e->getMessage());
-            // Fail-open para no tumbar la app si la tabla falla.
+            // Fail-open para no tumbar la app si falla la tabla de rate limits.
             return $handler->handle($request);
         }
 
@@ -116,14 +117,38 @@ class RateLimitMiddleware
 
     public static function extractClientIp(Request $request): string
     {
-        $xff = $request->getHeaderLine('X-Forwarded-For');
-        if ($xff !== '') {
-            $parts = explode(',', $xff);
-            return trim($parts[0]);
+        $server = $request->getServerParams();
+        $remoteAddr = (string)($server['REMOTE_ADDR'] ?? '0.0.0.0');
+
+        $trustProxy = filter_var($_ENV['TRUST_PROXY'] ?? 'false', FILTER_VALIDATE_BOOLEAN);
+        if (!$trustProxy) {
+            return $remoteAddr;
         }
 
-        $server = $request->getServerParams();
-        return (string)($server['REMOTE_ADDR'] ?? '0.0.0.0');
+        $trustedProxiesRaw = trim((string)($_ENV['TRUSTED_PROXIES'] ?? ''));
+        $trustedProxies = array_values(array_filter(array_map('trim', explode(',', $trustedProxiesRaw))));
+        if (empty($trustedProxies)) {
+            // Configuración segura por defecto: no confiar en XFF sin lista explícita.
+            return $remoteAddr;
+        }
+
+        if (!in_array($remoteAddr, $trustedProxies, true)) {
+            return $remoteAddr;
+        }
+
+        $xff = trim($request->getHeaderLine('X-Forwarded-For'));
+        if ($xff === '') {
+            return $remoteAddr;
+        }
+
+        $parts = array_map('trim', explode(',', $xff));
+        $clientIp = $parts[0] ?? '';
+
+        if ($clientIp !== '' && filter_var($clientIp, FILTER_VALIDATE_IP)) {
+            return $clientIp;
+        }
+
+        return $remoteAddr;
     }
 
     private function purgeExpired(): void

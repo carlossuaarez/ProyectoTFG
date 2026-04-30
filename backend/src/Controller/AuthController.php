@@ -69,11 +69,21 @@ class AuthController {
             return $this->json($res, ['error' => 'Credenciales incorrectas'], 401);
         }
 
-        if ((int)($user['two_factor_enabled'] ?? 1) === 0) {
+        $twoFactorMode = $this->getTwoFactorMode();
+        $userTwoFactorEnabled = (int)($user['two_factor_enabled'] ?? 1) === 1;
+
+        if ($userTwoFactorEnabled && $twoFactorMode === 'enforced') {
+            return $this->startTwoFactorChallenge($user, $res);
+        }
+
+        if ($userTwoFactorEnabled && $twoFactorMode === 'shadow') {
+            // En shadow intentamos enviar OTP pero no bloqueamos login.
+            $this->startTwoFactorChallenge($user, $res);
             return $this->issueJwtResponse($user, $res);
         }
 
-        return $this->startTwoFactorChallenge($user, $res);
+        // disabled o user con 2FA desactivado
+        return $this->issueJwtResponse($user, $res);
     }
 
     public function googleLogin(Request $req, Response $res)
@@ -150,15 +160,24 @@ class AuthController {
 
             $this->db->commit();
 
-            if ((int)($user['two_factor_enabled'] ?? 1) === 0) {
+            $twoFactorMode = $this->getTwoFactorMode();
+            $userTwoFactorEnabled = (int)($user['two_factor_enabled'] ?? 1) === 1;
+
+            if ($userTwoFactorEnabled && $twoFactorMode === 'enforced') {
+                return $this->startTwoFactorChallenge($user, $res);
+            }
+
+            if ($userTwoFactorEnabled && $twoFactorMode === 'shadow') {
+                $this->startTwoFactorChallenge($user, $res);
                 return $this->issueJwtResponse($user, $res);
             }
 
-            return $this->startTwoFactorChallenge($user, $res);
+            return $this->issueJwtResponse($user, $res);
         } catch (Throwable $e) {
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
+            error_log('Google login error: ' . $e->getMessage());
             return $this->json($res, ['error' => 'No se pudo completar el login con Google'], 500);
         }
     }
@@ -190,7 +209,8 @@ class AuthController {
                 u.id AS id,
                 u.username,
                 u.role,
-                u.email
+                u.email,
+                u.two_factor_enabled
             FROM login_challenges lc
             INNER JOIN users u ON u.id = lc.user_id
             WHERE lc.public_id = ?
@@ -201,6 +221,11 @@ class AuthController {
 
         if (!$challenge) {
             return $this->json($res, ['error' => 'Desafío 2FA no encontrado'], 404);
+        }
+
+        if ((int)($challenge['two_factor_enabled'] ?? 0) === 0 || $this->getTwoFactorMode() !== 'enforced') {
+            error_log("Intento de verificar 2FA fuera de modo enforced para user_id={$challenge['user_id']}");
+            return $this->json($res, ['error' => 'Verificación no requerida o ya completada.'], 403);
         }
 
         if (!empty($challenge['consumed_at'])) {
@@ -285,6 +310,7 @@ class AuthController {
         $avatarUrl = array_key_exists('avatar_url', $data)
             ? trim((string)$data['avatar_url'])
             : (string)($currentUser['avatar_url'] ?? '');
+
         $avatarFileBase64 = array_key_exists('avatar_file_base64', $data)
             ? trim((string)$data['avatar_file_base64'])
             : '';
@@ -382,9 +408,9 @@ class AuthController {
                 $otpCode
             );
         } catch (Throwable $e) {
-            if ($this->shouldBypassTwoFactorOnMailFailure()) {
-                error_log('2FA mail delivery failed, bypass enabled for development: ' . $e->getMessage());
+            error_log('2FA mail delivery failed: ' . $e->getMessage());
 
+            if ($this->shouldBypassTwoFactorOnMailFailure() && $this->getTwoFactorMode() !== 'enforced') {
                 $cleanup = $this->db->prepare("DELETE FROM login_challenges WHERE public_id = ?");
                 $cleanup->execute([$challengeId]);
 
@@ -394,7 +420,7 @@ class AuthController {
             $cleanup = $this->db->prepare("DELETE FROM login_challenges WHERE public_id = ?");
             $cleanup->execute([$challengeId]);
 
-            return $this->json($res, ['error' => $e->getMessage()], 500);
+            return $this->json($res, ['error' => 'No se pudo enviar el código de verificación.'], 500);
         }
 
         return $this->json($res, [
@@ -425,7 +451,7 @@ class AuthController {
     private function getUserById(int $id): ?array
     {
         $stmt = $this->db->prepare("
-            SELECT id, username, full_name, email, avatar_url, role, created_at
+            SELECT id, username, full_name, email, avatar_url, role, created_at, two_factor_enabled
             FROM users
             WHERE id = ?
             LIMIT 1
@@ -600,10 +626,10 @@ class AuthController {
 
             $select = $this->db->prepare(
                 "SELECT id, hits, reset_at
-                FROM rate_limits
-                WHERE bucket = ? AND key_hash = ?
-                LIMIT 1
-                FOR UPDATE"
+                 FROM rate_limits
+                 WHERE bucket = ? AND key_hash = ?
+                 LIMIT 1
+                 FOR UPDATE"
             );
             $select->execute([$bucket, $keyHash]);
             $row = $select->fetch(PDO::FETCH_ASSOC);
@@ -614,7 +640,7 @@ class AuthController {
             if (!$row) {
                 $insert = $this->db->prepare(
                     "INSERT INTO rate_limits (bucket, key_hash, hits, reset_at)
-                    VALUES (?, ?, 1, ?)"
+                     VALUES (?, ?, 1, ?)"
                 );
                 $insert->execute([$bucket, $keyHash, $newResetAt]);
                 $this->db->commit();
@@ -652,11 +678,22 @@ class AuthController {
         }
     }
 
-    private function isStrongPassword(string $password): bool {
+    private function getTwoFactorMode(): string
+    {
+        $mode = strtolower(trim((string)($_ENV['AUTH_2FA_MODE'] ?? 'enforced')));
+        if (!in_array($mode, ['disabled', 'shadow', 'enforced'], true)) {
+            $mode = 'enforced';
+        }
+        return $mode;
+    }
+
+    private function isStrongPassword(string $password): bool
+    {
         return (bool)preg_match('/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/', $password);
     }
 
-    private function shouldBypassTwoFactorOnMailFailure(): bool {
+    private function shouldBypassTwoFactorOnMailFailure(): bool
+    {
         $bypassEnabled = filter_var(
             $_ENV['AUTH_DEV_BYPASS_2FA_ON_MAIL_FAILURE'] ?? 'false',
             FILTER_VALIDATE_BOOLEAN
