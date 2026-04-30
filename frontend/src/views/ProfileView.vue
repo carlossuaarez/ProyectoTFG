@@ -1,4 +1,4 @@
-a<template>
+<template>
   <section class="profile-page">
     <article class="profile-card">
       <header class="profile-header">
@@ -17,22 +17,12 @@ a<template>
             @error="onAvatarError"
           />
           <div class="avatar-meta">
-            <strong>{{ form.full_name || form.username || 'Usuario' }}</strong>
+            <strong>{{ userHandle }}</strong>
             <small>{{ form.email || '-' }}</small>
           </div>
         </div>
 
         <form @submit.prevent="handleSave">
-          <div class="input-group">
-            <label for="fullName">Nombre</label>
-            <input
-              id="fullName"
-              v-model.trim="form.full_name"
-              maxlength="100"
-              placeholder="Tu nombre completo"
-            />
-          </div>
-
           <div class="input-group">
             <label for="username">Nombre de usuario</label>
             <input
@@ -109,7 +99,6 @@ const fileError = ref('')
 const avatarFileInputRef = ref(null)
 
 const form = reactive({
-  full_name: '',
   username: '',
   email: '',
   avatar_url: '',
@@ -136,6 +125,11 @@ function resolveAvatarUrl(url) {
   return value
 }
 
+const userHandle = computed(() => {
+  const clean = String(form.username || '').trim().replace(/^@+/, '')
+  return clean ? `@${clean}` : '@'
+})
+
 const avatarPreview = computed(() => {
   if (localAvatarPreview.value) {
     return localAvatarPreview.value
@@ -155,6 +149,7 @@ function clearLocalAvatarSelection() {
   localAvatarPreview.value = ''
   avatarFileBase64.value = ''
   selectedFileName.value = ''
+  fileError.value = ''
   if (avatarFileInputRef.value) {
     avatarFileInputRef.value.value = ''
   }
@@ -166,7 +161,6 @@ function handleAvatarFileChange(event) {
 
   if (!file) {
     clearLocalAvatarSelection()
-    fileError.value = ''
     return
   }
 
@@ -206,7 +200,6 @@ function handleAvatarFileChange(event) {
 }
 
 function fillFormFromUser(user) {
-  form.full_name = user?.full_name || ''
   form.username = user?.username || ''
   form.email = user?.email || ''
   form.avatar_url = user?.avatar_url || ''
@@ -242,7 +235,6 @@ async function handleSave() {
   }
 
   const payload = {
-    full_name: form.full_name,
     username: form.username,
     email: form.email,
     avatar_url: form.avatar_url,

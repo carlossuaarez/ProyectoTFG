@@ -21,11 +21,6 @@
         <router-link to="/tournaments">Torneos</router-link>
 
         <template v-if="token">
-          <router-link to="/profile" class="action-link">
-            <UserCircle class="pill-icon" />
-            Perfil
-          </router-link>
-
           <router-link to="/create-tournament" class="pill pill-primary action-link">
             <Plus class="pill-icon" />
             Crear torneo
@@ -33,10 +28,40 @@
 
           <router-link v-if="isAdmin" to="/admin">Admin</router-link>
 
-          <button class="pill pill-ghost action-link" type="button" @click="handleLogout">
-            <LogOut class="pill-icon" />
-            Cerrar sesión
-          </button>
+          <div ref="userMenuRef" class="user-menu-wrap">
+            <button
+              class="user-trigger"
+              type="button"
+              :aria-expanded="isUserMenuOpen ? 'true' : 'false'"
+              @click.stop="toggleUserMenu"
+            >
+              <img
+                :src="avatarSrc"
+                alt="Foto de perfil"
+                class="user-avatar"
+                @error="onAvatarError"
+              />
+              <span class="user-label">{{ userLabel }}</span>
+              <ChevronDown class="pill-icon chevron" :class="{ open: isUserMenuOpen }" />
+            </button>
+
+            <div v-if="isUserMenuOpen" class="user-dropdown">
+              <router-link to="/profile" class="dropdown-item" @click="closeMenus">
+                <UserCircle class="pill-icon" />
+                Editar perfil
+              </router-link>
+
+              <router-link to="/settings" class="dropdown-item" @click="closeMenus">
+                <Settings class="pill-icon" />
+                Configuración
+              </router-link>
+
+              <button class="dropdown-item logout-item" type="button" @click="handleLogout">
+                <LogOut class="pill-icon" />
+                Cerrar sesión
+              </button>
+            </div>
+          </div>
         </template>
 
         <template v-else>
@@ -49,30 +74,114 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue'
+import { ref, watch, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { storeToRefs } from 'pinia'
-import { Trophy, Menu, X, Plus, LogOut, UserCircle } from 'lucide-vue-next'
+import { Trophy, Menu, X, Plus, LogOut, UserCircle, Settings, ChevronDown } from 'lucide-vue-next'
 
 const authStore = useAuthStore()
-const { token, isAdmin } = storeToRefs(authStore)
+const { token, isAdmin, me, payload } = storeToRefs(authStore)
 const { logout } = authStore
 
 const route = useRoute()
 const isMenuOpen = ref(false)
+const isUserMenuOpen = ref(false)
+const userMenuRef = ref(null)
+const avatarBroken = ref(false)
+
+const fallbackAvatar = '/favicon.svg'
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api'
+
+function getBackendOrigin() {
+  try {
+    return new URL(API_BASE).origin
+  } catch {
+    return ''
+  }
+}
+
+function resolveAvatarUrl(url) {
+  const value = String(url || '').trim()
+  if (!value) return ''
+  if (value.startsWith('/uploads/')) {
+    const origin = getBackendOrigin()
+    return origin ? `${origin}${value}` : value
+  }
+  return value
+}
+
+const userLabel = computed(() => {
+  const username = String(me.value?.username || payload.value?.username || '').trim()
+  return username || 'Usuario'
+})
+
+const avatarSrc = computed(() => {
+  if (avatarBroken.value) return fallbackAvatar
+  const resolved = resolveAvatarUrl(me.value?.avatar_url || '')
+  return resolved || fallbackAvatar
+})
+
+function onAvatarError() {
+  avatarBroken.value = true
+}
+
+async function ensureUserLoaded() {
+  if (!token.value) return
+  if (me.value?.username) return
+  await authStore.fetchMe()
+}
+
+function toggleUserMenu() {
+  isUserMenuOpen.value = !isUserMenuOpen.value
+}
+
+function closeMenus() {
+  isMenuOpen.value = false
+  isUserMenuOpen.value = false
+}
+
+function onDocumentClick(event) {
+  if (!isUserMenuOpen.value) return
+  if (!userMenuRef.value) return
+  if (!userMenuRef.value.contains(event.target)) {
+    isUserMenuOpen.value = false
+  }
+}
+
+function handleLogout() {
+  closeMenus()
+  logout()
+}
 
 watch(
   () => route.fullPath,
   () => {
-    isMenuOpen.value = false
+    closeMenus()
   }
 )
 
-function handleLogout() {
-  isMenuOpen.value = false
-  logout()
-}
+watch(
+  () => token.value,
+  async (nextToken) => {
+    avatarBroken.value = false
+    if (!nextToken) {
+      isUserMenuOpen.value = false
+      return
+    }
+    await ensureUserLoaded()
+  },
+  { immediate: true }
+)
+
+onMounted(async () => {
+  document.addEventListener('click', onDocumentClick)
+  await ensureUserLoaded()
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('click', onDocumentClick)
+})
 </script>
 
 <style scoped>
@@ -183,14 +292,91 @@ function handleLogout() {
   color: #ffffff !important;
 }
 
-.pill-ghost {
-  background: rgba(255, 255, 255, 0.08);
-  color: #f8fafc;
-  border: 1px solid rgba(255, 255, 255, 0.18);
+.user-menu-wrap {
+  position: relative;
 }
 
-.pill-ghost:hover {
+.user-trigger {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+  color: #f8fafc;
+  border-radius: 999px;
+  padding: 0.35rem 0.65rem 0.35rem 0.4rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+.user-trigger:hover {
   background: rgba(255, 255, 255, 0.14);
+}
+
+.user-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  object-fit: cover;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  background: #ffffff;
+}
+
+.user-label {
+  font-weight: 700;
+  font-size: 0.92rem;
+}
+
+.chevron {
+  transition: transform 0.2s ease;
+}
+
+.chevron.open {
+  transform: rotate(180deg);
+}
+
+.user-dropdown {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.45rem);
+  min-width: 210px;
+  background: #ffffff;
+  color: #0f172a;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 16px 32px rgba(2, 6, 23, 0.2);
+  padding: 0.4rem;
+  display: grid;
+  gap: 0.2rem;
+  z-index: 120;
+}
+
+.user-dropdown .dropdown-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: #0f172a !important;
+  text-decoration: none;
+  font-weight: 600;
+  border-radius: 9px;
+  padding: 0.55rem 0.6rem;
+  border-bottom: none !important;
+  cursor: pointer;
+  text-align: left;
+}
+
+.user-dropdown .dropdown-item:hover {
+  background: #f1f5f9;
+}
+
+.user-dropdown .dropdown-item.router-link-exact-active {
+  border-bottom-color: transparent !important;
+}
+
+.logout-item {
+  font: inherit;
 }
 
 @media (max-width: 900px) {
@@ -216,10 +402,25 @@ function handleLogout() {
   }
 
   .nav-links a,
-  .pill-ghost,
-  .pill-primary {
+  .pill-primary,
+  .user-trigger {
     text-align: center;
     justify-content: center;
+  }
+
+  .user-menu-wrap {
+    width: 100%;
+  }
+
+  .user-trigger {
+    width: 100%;
+    border-radius: 12px;
+  }
+
+  .user-dropdown {
+    position: static;
+    margin-top: 0.45rem;
+    width: 100%;
   }
 }
 </style>
