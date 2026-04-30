@@ -46,14 +46,46 @@
       <table v-if="filteredTournaments.length > 0">
         <thead>
           <tr>
-            <th>Nombre</th>
-            <th>Creador</th>
-            <th>Categoría</th>
-            <th>Disciplina</th>
-            <th>Inicio</th>
-            <th>Ubicación</th>
-            <th>Visibilidad</th>
-            <th>Equipos máx.</th>
+            <th>
+              <button type="button" class="sort-btn" @click="setSort('name')">
+                Nombre <span class="sort-indicator">{{ sortIndicator('name') }}</span>
+              </button>
+            </th>
+            <th>
+              <button type="button" class="sort-btn" @click="setSort('creator')">
+                Creador <span class="sort-indicator">{{ sortIndicator('creator') }}</span>
+              </button>
+            </th>
+            <th>
+              <button type="button" class="sort-btn" @click="setSort('category')">
+                Categoría <span class="sort-indicator">{{ sortIndicator('category') }}</span>
+              </button>
+            </th>
+            <th>
+              <button type="button" class="sort-btn" @click="setSort('discipline')">
+                Disciplina <span class="sort-indicator">{{ sortIndicator('discipline') }}</span>
+              </button>
+            </th>
+            <th>
+              <button type="button" class="sort-btn" @click="setSort('start')">
+                Inicio <span class="sort-indicator">{{ sortIndicator('start') }}</span>
+              </button>
+            </th>
+            <th>
+              <button type="button" class="sort-btn" @click="setSort('location')">
+                Ubicación <span class="sort-indicator">{{ sortIndicator('location') }}</span>
+              </button>
+            </th>
+            <th>
+              <button type="button" class="sort-btn" @click="setSort('visibility')">
+                Visibilidad <span class="sort-indicator">{{ sortIndicator('visibility') }}</span>
+              </button>
+            </th>
+            <th>
+              <button type="button" class="sort-btn" @click="setSort('maxTeams')">
+                Equipos máx. <span class="sort-indicator">{{ sortIndicator('maxTeams') }}</span>
+              </button>
+            </th>
             <th>Acción</th>
           </tr>
         </thead>
@@ -133,6 +165,9 @@ const searchTerm = ref('')
 const typeFilter = ref('all')
 const visibilityFilter = ref('all')
 
+const sortKey = ref('start')
+const sortDirection = ref('asc') // asc | desc
+
 async function fetchAdminTournaments() {
   loading.value = true
   error.value = ''
@@ -148,10 +183,80 @@ async function fetchAdminTournaments() {
 
 onMounted(fetchAdminTournaments)
 
+function normalizeText(value) {
+  return String(value || '').trim().toLocaleLowerCase('es')
+}
+
+function startTimestamp(tournament) {
+  const datePart = String(tournament?.start_date || '').trim()
+  if (!datePart) return 0
+  const timePart = String(tournament?.start_time || '00:00:00').slice(0, 8) || '00:00:00'
+
+  let parsed = new Date(`${datePart}T${timePart}`)
+  if (Number.isNaN(parsed.getTime())) {
+    parsed = new Date(`${datePart} ${timePart}`)
+  }
+  if (Number.isNaN(parsed.getTime())) return 0
+  return parsed.getTime()
+}
+
+function locationValue(tournament) {
+  if (Number(tournament?.is_online) === 1) return 'online'
+  return normalizeText(`${tournament?.location_name || ''} ${tournament?.location_address || ''}`)
+}
+
+function sortValue(tournament, key) {
+  switch (key) {
+    case 'name':
+      return normalizeText(tournament?.name)
+    case 'creator':
+      return normalizeText(tournament?.created_by_username || `usuario #${Number(tournament?.created_by || 0)}`)
+    case 'category':
+      return normalizeText(tournament?.type === 'esports' ? 'e-sports' : 'deporte')
+    case 'discipline':
+      return normalizeText(tournament?.game)
+    case 'start':
+      return startTimestamp(tournament)
+    case 'location':
+      return locationValue(tournament)
+    case 'visibility':
+      return normalizeText(tournament?.visibility || 'public')
+    case 'maxTeams':
+      return Number(tournament?.max_teams || 0)
+    default:
+      return ''
+  }
+}
+
+function compareValues(a, b) {
+  const aIsNumber = typeof a === 'number'
+  const bIsNumber = typeof b === 'number'
+
+  if (aIsNumber && bIsNumber) {
+    return a - b
+  }
+
+  return String(a).localeCompare(String(b), 'es', { sensitivity: 'base' })
+}
+
+function setSort(key) {
+  if (sortKey.value === key) {
+    sortDirection.value = sortDirection.value === 'asc' ? 'desc' : 'asc'
+    return
+  }
+  sortKey.value = key
+  sortDirection.value = 'asc'
+}
+
+function sortIndicator(key) {
+  if (sortKey.value !== key) return '↕'
+  return sortDirection.value === 'asc' ? '↑' : '↓'
+}
+
 const filteredTournaments = computed(() => {
   const q = searchTerm.value.toLowerCase()
 
-  return tournaments.value
+  const filtered = tournaments.value
     .map((t) => ({ ...t, visibility: t.visibility || 'public' }))
     .filter((t) => (typeFilter.value === 'all' ? true : t.type === typeFilter.value))
     .filter((t) => (visibilityFilter.value === 'all' ? true : t.visibility === visibilityFilter.value))
@@ -162,11 +267,20 @@ const filteredTournaments = computed(() => {
         .join(' ')
       return haystack.includes(q)
     })
-    .sort((a, b) => {
-      const da = `${a.start_date || ''} ${String(a.start_time || '00:00:00').slice(0, 8)}`
-      const db = `${b.start_date || ''} ${String(b.start_time || '00:00:00').slice(0, 8)}`
-      return new Date(da) - new Date(db)
-    })
+
+  const sorted = [...filtered].sort((a, b) => {
+    const av = sortValue(a, sortKey.value)
+    const bv = sortValue(b, sortKey.value)
+
+    const cmp = compareValues(av, bv)
+    if (cmp !== 0) {
+      return sortDirection.value === 'asc' ? cmp : -cmp
+    }
+
+    return Number(a.id || 0) - Number(b.id || 0)
+  })
+
+  return sorted
 })
 
 function shortDescription(value) {
@@ -270,6 +384,32 @@ thead th {
   border-bottom: 1px solid #e2e8f0;
   font-size: 0.88rem;
   white-space: nowrap;
+}
+
+.sort-btn {
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.sort-btn:hover {
+  color: #0f172a;
+}
+
+.sort-indicator {
+  color: #64748b;
+  font-size: 0.78rem;
+  line-height: 1;
+  min-width: 1rem;
+  text-align: center;
 }
 
 tbody td {
