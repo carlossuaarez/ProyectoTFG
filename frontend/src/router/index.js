@@ -7,6 +7,7 @@ import TournamentDetailView from '../views/TournamentDetailView.vue'
 import CreateTournamentView from '../views/CreateTournamentView.vue'
 import AdminDashboardView from '../views/AdminDashboardView.vue'
 import ProfileView from '../views/ProfileView.vue'
+import SettingsView from '../views/SettingsView.vue'
 
 function parseJwt(token) {
   try {
@@ -54,6 +55,7 @@ const routes = [
   { path: '/tournaments/:id', component: TournamentDetailView, props: true },
   { path: '/create-tournament', component: CreateTournamentView, meta: { requiresAuth: true } },
   { path: '/profile', component: ProfileView, meta: { requiresAuth: true } },
+  { path: '/settings', component: SettingsView, meta: { requiresAuth: true } },
   { path: '/admin', component: AdminDashboardView, meta: { requiresAuth: true, requiresAdmin: true } },
   { path: '/:pathMatch(.*)*', redirect: '/' }
 ]
