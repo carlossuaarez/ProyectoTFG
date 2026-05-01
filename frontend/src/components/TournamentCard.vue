@@ -1,9 +1,14 @@
 <template>
   <article class="card">
     <div class="card-top">
-      <span class="badge" :class="tournament.type">
-        {{ tournament.type === 'esports' ? 'e-Sports' : 'Deporte' }}
-      </span>
+      <div class="left-badges">
+        <span class="badge" :class="tournament.type">
+          {{ tournament.type === 'esports' ? 'e-Sports' : 'Deporte' }}
+        </span>
+
+        <span v-if="isCreatedByMe" class="created-by-me-chip">Creado por mí</span>
+      </div>
+
       <span class="visibility" :class="tournament.visibility">
         {{ tournament.visibility === 'private' ? 'Privado' : 'Público' }}
       </span>
@@ -49,6 +54,10 @@ const props = defineProps({
   tournament: {
     type: Object,
     required: true,
+  },
+  isCreatedByMe: {
+    type: Boolean,
+    default: false,
   },
 })
 
@@ -104,7 +113,14 @@ function formatDateTime(date, time) {
   justify-content: space-between;
   gap: 0.6rem;
   align-items: center;
-  margin-bottom: 0.8rem;
+  margin-bottom: 0.6rem;
+}
+
+.left-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
 }
 
 .badge,
@@ -133,6 +149,16 @@ function formatDateTime(date, time) {
 .visibility.private {
   background: #fee2e2;
   color: #991b1b;
+}
+
+.created-by-me-chip {
+  border-radius: 999px;
+  padding: 0.22rem 0.62rem;
+  font-size: 0.78rem;
+  font-weight: 800;
+  border: 1px solid #fdba74;
+  background: #ffedd5;
+  color: #9a3412;
 }
 
 h3 {

@@ -54,7 +54,12 @@
     </div>
 
     <div v-else class="grid-container">
-      <TournamentCard v-for="t in filteredTournaments" :key="t.id" :tournament="t" />
+      <TournamentCard
+        v-for="t in filteredTournaments"
+        :key="t.id"
+        :tournament="t"
+        :is-created-by-me="isCreatedByMe(t)"
+      />
     </div>
   </section>
 </template>
@@ -74,7 +79,7 @@ const loading = ref(true)
 const error = ref('')
 
 const authStore = useAuthStore()
-const { token } = storeToRefs(authStore)
+const { token, payload } = storeToRefs(authStore)
 
 function normalizeText(value) {
   return String(value || '').toLowerCase().trim()
@@ -101,6 +106,12 @@ function normalizeTournament(t) {
     created_by: Number(t.created_by || 0),
     created_by_username: String(t.created_by_username || ''),
   }
+}
+
+function isCreatedByMe(tournament) {
+  const myId = Number(payload.value?.id || 0)
+  const creatorId = Number(tournament?.created_by || 0)
+  return myId > 0 && creatorId > 0 && myId === creatorId
 }
 
 async function fetchTournaments() {
