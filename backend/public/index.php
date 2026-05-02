@@ -12,6 +12,7 @@ require __DIR__ . '/../src/Controller/AdminController.php';
 require __DIR__ . '/../src/Controller/MyTournamentsController.php';
 require __DIR__ . '/../src/Controller/TeamController.php';
 require __DIR__ . '/../src/Controller/UserDashboardController.php';
+require __DIR__ . '/../src/Controller/MatchController.php';
 require __DIR__ . '/../src/Middleware/AuthMiddleware.php';
 require __DIR__ . '/../src/Middleware/RateLimitMiddleware.php';
 
@@ -115,6 +116,7 @@ $adminController = new AdminController($db);
 $myTournamentsController = new MyTournamentsController($db);
 $teamController = new TeamController($db);
 $userDashboardController = new UserDashboardController($db);
+$matchController = new MatchController($db);
 $authMiddleware = new AuthMiddleware();
 
 // ---- Rate limiters auth ----
@@ -240,6 +242,7 @@ $app->group('/api', function ($group) use (
     $adminController,
     $myTournamentsController,
     $teamController,
+    $matchController,
     $userDashboardController,
     $tournamentJoinLimiter,
     $tournamentDetailLimiter
@@ -263,6 +266,16 @@ $app->group('/api', function ($group) use (
     $group->post('/team-invites/{code:[A-Z0-9]+}/accept', [$teamController, 'acceptInvite']);
     $group->patch('/teams/{teamId:[0-9]+}/members/{memberId:[0-9]+}/validate', [$teamController, 'validateMember']);
     $group->patch('/teams/{teamId:[0-9]+}/members/{memberId:[0-9]+}/role', [$teamController, 'updateMemberRole']);
+
+    // PARTIDOS / RESULTADOS
+    $group->get('/tournaments/{id:[0-9]+}/matches', [$matchController, 'getTournamentMatches'])->add($tournamentDetailLimiter);
+    $group->post('/tournaments/{id:[0-9]+}/matches/bootstrap', [$matchController, 'bootstrapTournamentBracket'])->add($tournamentJoinLimiter);
+    $group->get('/matches/{id:[0-9]+}', [$matchController, 'getMatchCenter']);
+    $group->patch('/matches/{id:[0-9]+}/status', [$matchController, 'updateMatchStatus']);
+    $group->patch('/matches/{id:[0-9]+}/score', [$matchController, 'submitMatchScore']);
+    $group->patch('/matches/{id:[0-9]+}/confirm', [$matchController, 'confirmMatchResult']);
+    $group->post('/matches/{id:[0-9]+}/disputes', [$matchController, 'openDispute']);
+    $group->patch('/matches/{id:[0-9]+}/disputes/{disputeId:[0-9]+}', [$matchController, 'updateDispute']);
 
     // Admin
     $group->get('/admin/tournaments', [$adminController, 'getAllTournaments']);

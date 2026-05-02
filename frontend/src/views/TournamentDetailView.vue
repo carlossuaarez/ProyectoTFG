@@ -73,6 +73,12 @@
         </template>
       </div>
 
+      <div class="match-actions">
+        <router-link class="matches-btn" :to="`/tournaments/${tournament.id}/matches`">
+          Ver partidos y bracket
+        </router-link>
+      </div>
+
       <div v-if="canEdit" class="owner-actions">
         <button type="button" class="edit-toggle-btn" @click="toggleEditMode">
           {{ editMode ? 'Cancelar edición' : 'Editar torneo' }}
@@ -706,6 +712,23 @@ h1 {
 .location-box {
   border-top: 1px solid var(--border);
   padding-top: 0.8rem;
+}
+
+.match-actions {
+  margin-top: 0.8rem;
+}
+
+.matches-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+  border-radius: 10px;
+  padding: 0.52rem 0.8rem;
+  font-weight: 700;
 }
 
 .location-box h3 {
