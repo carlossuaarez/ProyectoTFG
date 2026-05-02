@@ -43,7 +43,10 @@
       </div>
     </div>
 
-    <router-link class="cta" :to="`/tournaments/${tournament.id}`">Ver torneo</router-link>
+    <div class="cta-row">
+      <router-link class="cta cta-soft" :to="`/tournaments/${tournament.id}/teams`">Equipos</router-link>
+      <router-link class="cta" :to="`/tournaments/${tournament.id}`">Ver torneo</router-link>
+    </div>
   </article>
 </template>
 
@@ -220,8 +223,14 @@ h3 {
   color: #991b1b;
 }
 
-.cta {
+.cta-row {
   margin-top: auto;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.cta {
   text-decoration: none;
   text-align: center;
   border-radius: 10px;
@@ -229,5 +238,11 @@ h3 {
   font-weight: 700;
   color: #ffffff;
   background: linear-gradient(135deg, #0ea5e9, #06b6d4);
+}
+
+.cta-soft {
+  color: #1d4ed8;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
 }
 </style>

@@ -10,6 +10,7 @@ require __DIR__ . '/../src/Controller/AuthController.php';
 require __DIR__ . '/../src/Controller/TournamentController.php';
 require __DIR__ . '/../src/Controller/AdminController.php';
 require __DIR__ . '/../src/Controller/MyTournamentsController.php';
+require __DIR__ . '/../src/Controller/TeamController.php';
 require __DIR__ . '/../src/Middleware/AuthMiddleware.php';
 require __DIR__ . '/../src/Middleware/RateLimitMiddleware.php';
 
@@ -50,7 +51,7 @@ $app->add(function (Request $request, $handler) use ($app) {
 $app->addBodyParsingMiddleware();
 $app->addRoutingMiddleware();
 
-// Servir avatares locales en /uploads/* 
+// Servir avatares locales en /uploads/*
 $app->add(function (Request $request, $handler) use ($app) {
     $path = rawurldecode($request->getUri()->getPath());
 
@@ -111,6 +112,7 @@ $authController = new AuthController($db, $mailService);
 $tournamentController = new TournamentController($db);
 $adminController = new AdminController($db);
 $myTournamentsController = new MyTournamentsController($db);
+$teamController = new TeamController($db);
 $authMiddleware = new AuthMiddleware();
 
 // ---- Rate limiters auth ----
@@ -232,7 +234,9 @@ $app->group('/api', function ($group) use (
     $tournamentController,
     $adminController,
     $myTournamentsController,
-    $tournamentJoinLimiter
+    $teamController,
+    $tournamentJoinLimiter,
+    $tournamentDetailLimiter
 ) {
     $group->get('/me', [$authController, 'me']);
     $group->put('/me', [$authController, 'updateProfile']);
@@ -241,6 +245,14 @@ $app->group('/api', function ($group) use (
     $group->post('/tournaments', [$tournamentController, 'create']);
     $group->put('/tournaments/{id:[0-9]+}', [$tournamentController, 'update']);
     $group->post('/tournaments/{id:[0-9]+}/join', [$tournamentController, 'join'])->add($tournamentJoinLimiter);
+
+    // FASE 1 EQUIPOS (aditivo)
+    $group->get('/tournaments/{id:[0-9]+}/teams', [$teamController, 'getTournamentTeams'])->add($tournamentDetailLimiter);
+    $group->post('/tournaments/{id:[0-9]+}/team-entry', [$teamController, 'createTeamOrWaitlist'])->add($tournamentJoinLimiter);
+    $group->post('/teams/{id:[0-9]+}/invites', [$teamController, 'createInvite']);
+    $group->post('/team-invites/{code:[A-Z0-9]+}/accept', [$teamController, 'acceptInvite']);
+    $group->patch('/teams/{teamId:[0-9]+}/members/{memberId:[0-9]+}/validate', [$teamController, 'validateMember']);
+    $group->patch('/teams/{teamId:[0-9]+}/members/{memberId:[0-9]+}/role', [$teamController, 'updateMemberRole']);
 
     // Admin
     $group->get('/admin/tournaments', [$adminController, 'getAllTournaments']);

@@ -10,6 +10,10 @@ import ProfileView from '../views/ProfileView.vue'
 import SettingsView from '../views/SettingsView.vue'
 import MyTournamentsView from '../views/MyTournamentsView.vue'
 
+// NUEVO FASE 1
+import TournamentTeamsView from '../views/TournamentTeamsView.vue'
+import JoinTeamInviteView from '../views/JoinTeamInviteView.vue'
+
 function parseJwt(token) {
   try {
     const base64Url = token.split('.')[1]
@@ -56,6 +60,10 @@ const routes = [
   { path: '/search-tournaments', component: TournamentsView },
   { path: '/tournaments', redirect: '/search-tournaments' },
   { path: '/tournaments/:id', component: TournamentDetailView, props: true },
+
+  // NUEVO FASE 1
+  { path: '/tournaments/:id/teams', component: TournamentTeamsView, props: true, meta: { requiresAuth: true } },
+  { path: '/team-invite/:code', component: JoinTeamInviteView, props: true, meta: { requiresAuth: true } },
 
   { path: '/my-tournaments', component: MyTournamentsView, meta: { requiresAuth: true } },
   { path: '/create-tournament', component: CreateTournamentView, meta: { requiresAuth: true } },
