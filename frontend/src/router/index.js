@@ -9,6 +9,7 @@ import AdminDashboardView from '../views/AdminDashboardView.vue'
 import ProfileView from '../views/ProfileView.vue'
 import SettingsView from '../views/SettingsView.vue'
 import MyTournamentsView from '../views/MyTournamentsView.vue'
+import NotificationsView from '../views/NotificationsView.vue'
 import TournamentMatchesView from '../views/TournamentMatchesView.vue'
 import MatchCenterView from '../views/MatchCenterView.vue'
 import TournamentTeamsView from '../views/TournamentTeamsView.vue'
@@ -63,11 +64,11 @@ const routes = [
   { path: '/tournaments/:id/matches', component: TournamentMatchesView, props: true, meta: { requiresAuth: true } },
   { path: '/matches/:id', component: MatchCenterView, props: true, meta: { requiresAuth: true } },
 
-  // NUEVO FASE 1
   { path: '/tournaments/:id/teams', component: TournamentTeamsView, props: true, meta: { requiresAuth: true } },
   { path: '/team-invite/:code', component: JoinTeamInviteView, props: true, meta: { requiresAuth: true } },
 
   { path: '/my-tournaments', component: MyTournamentsView, meta: { requiresAuth: true } },
+  { path: '/notifications', component: NotificationsView, meta: { requiresAuth: true } },
   { path: '/create-tournament', component: CreateTournamentView, meta: { requiresAuth: true } },
   { path: '/profile', component: ProfileView, meta: { requiresAuth: true } },
   { path: '/settings', component: SettingsView, meta: { requiresAuth: true } },

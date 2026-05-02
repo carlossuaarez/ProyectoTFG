@@ -1,6 +1,7 @@
 <template>
   <div id="app">
     <NavBar />
+    <ToastHost />
 
     <main class="main-content">
       <router-view />
@@ -17,6 +18,7 @@
 
 <script setup>
 import NavBar from './components/NavBar.vue'
+import ToastHost from './components/ToastHost.vue'
 </script>
 
 <style>

@@ -13,6 +13,7 @@ require __DIR__ . '/../src/Controller/MyTournamentsController.php';
 require __DIR__ . '/../src/Controller/TeamController.php';
 require __DIR__ . '/../src/Controller/UserDashboardController.php';
 require __DIR__ . '/../src/Controller/MatchController.php';
+require __DIR__ . '/../src/Controller/NotificationController.php';
 require __DIR__ . '/../src/Middleware/AuthMiddleware.php';
 require __DIR__ . '/../src/Middleware/RateLimitMiddleware.php';
 
@@ -117,6 +118,8 @@ $myTournamentsController = new MyTournamentsController($db);
 $teamController = new TeamController($db);
 $userDashboardController = new UserDashboardController($db);
 $matchController = new MatchController($db);
+$notificationController = new NotificationController($db);
+$notificationController->bootstrapTables();
 $authMiddleware = new AuthMiddleware();
 
 // ---- Rate limiters auth ----
@@ -233,6 +236,9 @@ $app->get('/api/tournaments/{id:[0-9]+}', [$tournamentController, 'getById'])
 $app->post('/api/tournaments/private/resolve', [$tournamentController, 'resolvePrivateByCode'])
     ->add($privateCodeResolveLimiter);
 
+// Scheduler interno de notificaciones (cron externo)
+$app->post('/api/internal/notifications/run', [$notificationController, 'runScheduler']);
+
 // Perfil público (respeta privacidad)
 $app->get('/api/users/{username:[A-Za-z0-9_]{3,30}}/public', [$userDashboardController, 'getPublicProfile']);
 
@@ -243,6 +249,7 @@ $app->group('/api', function ($group) use (
     $myTournamentsController,
     $teamController,
     $matchController,
+    $notificationController,
     $userDashboardController,
     $tournamentJoinLimiter,
     $tournamentDetailLimiter
@@ -278,8 +285,17 @@ $app->group('/api', function ($group) use (
     $group->post('/matches/{id:[0-9]+}/disputes', [$matchController, 'openDispute']);
     $group->patch('/matches/{id:[0-9]+}/disputes/{disputeId:[0-9]+}', [$matchController, 'updateDispute']);
 
+    // Notificaciones
+    $group->get('/notifications', [$notificationController, 'listMine']);
+    $group->patch('/notifications/{id:[0-9]+}/read', [$notificationController, 'markRead']);
+    $group->patch('/notifications/read-all', [$notificationController, 'markAllRead']);
+
     // Admin
     $group->get('/admin/tournaments', [$adminController, 'getAllTournaments']);
+    $group->get('/admin/kpis', [$adminController, 'getKpis']);
+    $group->post('/admin/tournaments/bulk-delete', [$adminController, 'bulkDeleteTournaments']);
+    $group->get('/admin/export/teams.csv', [$adminController, 'exportTeamsCsv']);
+    $group->get('/admin/export/results.csv', [$adminController, 'exportResultsCsv']);
     $group->delete('/admin/tournaments/{id:[0-9]+}', [$adminController, 'deleteTournament']);
 })->add($authMiddleware);
 

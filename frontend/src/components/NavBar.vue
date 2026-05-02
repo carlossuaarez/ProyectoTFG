@@ -23,6 +23,56 @@
         <template v-if="token">
           <router-link to="/my-tournaments">Mis torneos</router-link>
 
+          <div ref="notifRef" class="notif-wrap">
+            <button
+              type="button"
+              class="notif-trigger"
+              :aria-expanded="ui.notificationsOpen ? 'true' : 'false'"
+              aria-label="Notificaciones"
+              @click.stop="toggleNotificationsTray"
+            >
+              <Bell class="pill-icon" />
+              <span v-if="ui.unreadCount.value > 0" class="notif-count">{{ ui.unreadCount.value > 99 ? '99+' : ui.unreadCount.value }}</span>
+            </button>
+
+            <div v-if="ui.notificationsOpen.value" class="notif-dropdown">
+              <div class="notif-head">
+                <strong>Notificaciones</strong>
+                <button type="button" @click="markAllRead">Marcar todas</button>
+              </div>
+
+              <div v-if="ui.notificationsLoading.value" class="notif-state">Cargando...</div>
+              <div v-else-if="ui.notificationsError.value" class="notif-state error">{{ ui.notificationsError.value }}</div>
+              <ul v-else-if="ui.notifications.value.length > 0" class="notif-list">
+                <li
+                  v-for="n in ui.notifications.value"
+                  :key="n.id"
+                  :class="{ unread: !n.is_read }"
+                >
+                  <div class="notif-text">
+                    <strong>{{ n.title }}</strong>
+                    <p>{{ n.body }}</p>
+                  </div>
+                  <div class="notif-actions">
+                    <router-link
+                      v-if="n.link_url"
+                      :to="n.link_url"
+                      @click="openNotification(n)"
+                    >
+                      Abrir
+                    </router-link>
+                    <button v-else type="button" @click="openNotification(n)">Leída</button>
+                  </div>
+                </li>
+              </ul>
+              <div v-else class="notif-state">No tienes notificaciones.</div>
+
+              <div class="notif-footer">
+                <router-link to="/notifications" @click="closeMenus">Ver todas</router-link>
+              </div>
+            </div>
+          </div>
+
           <router-link to="/create-tournament" class="pill pill-primary action-link">
             <Plus class="pill-icon" />
             Crear torneo
@@ -80,16 +130,20 @@ import { ref, watch, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { storeToRefs } from 'pinia'
-import { Trophy, Menu, X, Plus, LogOut, UserCircle, Settings, ChevronDown } from 'lucide-vue-next'
+import { Trophy, Menu, X, Plus, LogOut, UserCircle, Settings, ChevronDown, Bell } from 'lucide-vue-next'
+import { useUiStore } from '../stores/ui'
+import { fetchNotifications, markNotificationRead, markAllNotificationsRead } from '../services/notifications'
 
 const authStore = useAuthStore()
 const { token, isAdmin, me, payload } = storeToRefs(authStore)
 const { logout } = authStore
+const ui = useUiStore()
 
 const route = useRoute()
 const isMenuOpen = ref(false)
 const isUserMenuOpen = ref(false)
 const userMenuRef = ref(null)
+const notifRef = ref(null)
 const avatarBroken = ref(false)
 
 const fallbackAvatar = '/favicon.svg'
@@ -141,6 +195,7 @@ function toggleUserMenu() {
 function closeMenus() {
   isMenuOpen.value = false
   isUserMenuOpen.value = false
+  ui.setNotificationsOpen(false)
 }
 
 function onDocumentClick(event) {
@@ -149,6 +204,33 @@ function onDocumentClick(event) {
   if (!userMenuRef.value.contains(event.target)) {
     isUserMenuOpen.value = false
   }
+
+  if (ui.notificationsOpen.value) {
+    if (!notifRef.value || !notifRef.value.contains(event.target)) {
+      ui.setNotificationsOpen(false)
+    }
+  }
+}
+
+async function toggleNotificationsTray() {
+  ui.toggleNotifications()
+  if (ui.notificationsOpen.value) {
+    await fetchNotifications(25)
+  }
+}
+
+async function markAllRead() {
+  const result = await markAllNotificationsRead()
+  if (!result.success) {
+    ui.toastError(result.message)
+  }
+}
+
+async function openNotification(notification) {
+  if (!notification?.is_read) {
+    await markNotificationRead(notification.id)
+  }
+  ui.setNotificationsOpen(false)
 }
 
 function handleLogout() {
@@ -179,6 +261,9 @@ watch(
 onMounted(async () => {
   document.addEventListener('click', onDocumentClick)
   await ensureUserLoaded()
+  if (token.value) {
+    await fetchNotifications(10)
+  }
 })
 
 onBeforeUnmount(() => {
@@ -298,6 +383,141 @@ onBeforeUnmount(() => {
   position: relative;
 }
 
+.notif-wrap {
+  position: relative;
+}
+
+.notif-trigger {
+  position: relative;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+  color: #f8fafc;
+  border-radius: 999px;
+  width: 38px;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.notif-footer {
+  border-top: 1px solid #e2e8f0;
+  padding: 0.55rem 0.7rem;
+}
+
+.notif-footer a {
+  color: #0f172a !important;
+  font-weight: 700;
+  border-bottom: none !important;
+  text-decoration: none;
+}
+
+.notif-count {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 0.25rem;
+}
+
+.notif-dropdown {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.45rem);
+  width: min(380px, 92vw);
+  max-height: 420px;
+  overflow: auto;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 16px 32px rgba(2, 6, 23, 0.2);
+  z-index: 125;
+}
+
+.notif-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.6rem 0.7rem;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.notif-head button {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #334155;
+  font-weight: 700;
+  font-size: 0.78rem;
+  padding: 0.3rem 0.45rem;
+  cursor: pointer;
+}
+
+.notif-list {
+  list-style: none;
+  display: grid;
+}
+
+.notif-list li {
+  border-bottom: 1px solid #eef2f7;
+  padding: 0.58rem 0.7rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.notif-list li.unread {
+  background: #eff6ff;
+}
+
+.notif-text strong {
+  font-size: 0.85rem;
+}
+
+.notif-text p {
+  font-size: 0.82rem;
+  color: #334155;
+}
+
+.notif-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.4rem;
+}
+
+.notif-actions a,
+.notif-actions button {
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #334155;
+  border-radius: 8px;
+  padding: 0.28rem 0.45rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.notif-state {
+  padding: 0.8rem;
+  color: #475569;
+  font-size: 0.86rem;
+}
+
+.notif-state.error {
+  color: #b91c1c;
+}
+
 .user-trigger {
   border: 1px solid rgba(255, 255, 255, 0.2);
   background: rgba(255, 255, 255, 0.08);
@@ -412,6 +632,19 @@ onBeforeUnmount(() => {
 
   .user-menu-wrap {
     width: 100%;
+  }
+
+  .notif-wrap {
+    width: 100%;
+    display: flex;
+    justify-content: center;
+  }
+
+  .notif-dropdown {
+    right: auto;
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(420px, 95vw);
   }
 
   .user-trigger {
