@@ -11,6 +11,7 @@ require __DIR__ . '/../src/Controller/TournamentController.php';
 require __DIR__ . '/../src/Controller/AdminController.php';
 require __DIR__ . '/../src/Controller/MyTournamentsController.php';
 require __DIR__ . '/../src/Controller/TeamController.php';
+require __DIR__ . '/../src/Controller/UserDashboardController.php';
 require __DIR__ . '/../src/Middleware/AuthMiddleware.php';
 require __DIR__ . '/../src/Middleware/RateLimitMiddleware.php';
 
@@ -113,6 +114,7 @@ $tournamentController = new TournamentController($db);
 $adminController = new AdminController($db);
 $myTournamentsController = new MyTournamentsController($db);
 $teamController = new TeamController($db);
+$userDashboardController = new UserDashboardController($db);
 $authMiddleware = new AuthMiddleware();
 
 // ---- Rate limiters auth ----
@@ -229,24 +231,32 @@ $app->get('/api/tournaments/{id:[0-9]+}', [$tournamentController, 'getById'])
 $app->post('/api/tournaments/private/resolve', [$tournamentController, 'resolvePrivateByCode'])
     ->add($privateCodeResolveLimiter);
 
+// Perfil público (respeta privacidad)
+$app->get('/api/users/{username:[A-Za-z0-9_]{3,30}}/public', [$userDashboardController, 'getPublicProfile']);
+
 $app->group('/api', function ($group) use (
     $authController,
     $tournamentController,
     $adminController,
     $myTournamentsController,
     $teamController,
+    $userDashboardController,
     $tournamentJoinLimiter,
     $tournamentDetailLimiter
 ) {
     $group->get('/me', [$authController, 'me']);
     $group->put('/me', [$authController, 'updateProfile']);
 
+    // Dashboard de usuario + privacidad
+    $group->get('/users/me/dashboard', [$userDashboardController, 'getMyDashboard']);
+    $group->patch('/users/me/privacy', [$userDashboardController, 'updateMyPrivacy']);
+
     $group->get('/tournaments/mine', [$myTournamentsController, 'getMine']);
     $group->post('/tournaments', [$tournamentController, 'create']);
     $group->put('/tournaments/{id:[0-9]+}', [$tournamentController, 'update']);
     $group->post('/tournaments/{id:[0-9]+}/join', [$tournamentController, 'join'])->add($tournamentJoinLimiter);
 
-    // FASE 1 EQUIPOS (aditivo)
+    // EQUIPOS
     $group->get('/tournaments/{id:[0-9]+}/teams', [$teamController, 'getTournamentTeams'])->add($tournamentDetailLimiter);
     $group->post('/tournaments/{id:[0-9]+}/team-entry', [$teamController, 'createTeamOrWaitlist'])->add($tournamentJoinLimiter);
     $group->post('/teams/{id:[0-9]+}/invites', [$teamController, 'createInvite']);
