@@ -74,6 +74,54 @@
           </ol>
         </article>
 
+        <article v-if="standingsAvailable" class="standings-card">
+          <div class="standings-head">
+            <h2>Clasificación automática</h2>
+            <span class="format-chip">{{ tournamentFormat === 'league' ? 'Liga' : 'Mixto' }}</span>
+          </div>
+
+          <div class="standings-wrap">
+            <table class="standings-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Equipo</th>
+                  <th>PJ</th>
+                  <th>PG</th>
+                  <th>PE</th>
+                  <th>PP</th>
+                  <th>GF</th>
+                  <th>GC</th>
+                  <th>DG</th>
+                  <th>PTS</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="row in standings" :key="row.team_id" :class="positionClass(row.position)">
+                  <td>{{ row.position }}</td>
+                  <td class="team-col">{{ row.team_name }}</td>
+                  <td>{{ row.played }}</td>
+                  <td>{{ row.won }}</td>
+                  <td>{{ row.drawn }}</td>
+                  <td>{{ row.lost }}</td>
+                  <td>{{ row.goals_for }}</td>
+                  <td>{{ row.goals_against }}</td>
+                  <td>{{ row.goal_diff }}</td>
+                  <td class="pts">{{ row.points }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="tiebreak-box">
+            <h3>Desempates (reglas transparentes)</h3>
+            <ol v-if="tiebreakRules.length > 0">
+              <li v-for="rule in tiebreakRules" :key="rule">{{ rule }}</li>
+            </ol>
+            <p v-else class="muted">No hay reglas de desempate configuradas.</p>
+          </div>
+        </article>
+
         <article class="bracket-card">
           <h2>Bracket</h2>
 
@@ -130,7 +178,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../services/api'
 
@@ -149,6 +197,10 @@ const bootstrapping = ref(false)
 const tournamentName = ref('')
 const rounds = ref([])
 const phaseTimeline = ref([])
+const standings = ref([])
+const tiebreakRules = ref([])
+const standingsAvailable = ref(false)
+const tournamentFormat = ref('single_elim')
 const permissions = reactive({
   can_manage: false,
   can_bootstrap: false
@@ -203,6 +255,16 @@ function phaseProgress(phase) {
   return Math.max(0, Math.min(100, Math.round((finalized / total) * 100)))
 }
 
+const totalTeams = computed(() => Number(standings.value.length || 0))
+
+function positionClass(pos) {
+  const p = Number(pos || 0)
+  if (p <= 0) return 'neutral'
+  if (p <= 3) return 'top'
+  if (p >= Math.max(1, totalTeams.value - 2)) return 'bottom'
+  return 'neutral'
+}
+
 async function fetchMatches() {
   loading.value = true
   error.value = ''
@@ -211,8 +273,16 @@ async function fetchMatches() {
     const config = getHeadersWithCode()
     const res = await api.get(`/tournaments/${route.params.id}/matches`, config)
     tournamentName.value = String(res.data?.tournament?.name || '')
+    tournamentFormat.value = String(res.data?.tournament?.format || 'single_elim')
     rounds.value = Array.isArray(res.data?.rounds) ? res.data.rounds : []
     phaseTimeline.value = Array.isArray(res.data?.phase_timeline) ? res.data.phase_timeline : []
+    standings.value = Array.isArray(res.data?.standings) ? res.data.standings : []
+    tiebreakRules.value = Array.isArray(res.data?.standings_tiebreak_rules)
+      ? res.data.standings_tiebreak_rules
+      : (Array.isArray(res.data?.tiebreak_rules) ? res.data.tiebreak_rules : [])
+    standingsAvailable.value = (typeof res.data?.standings_available === 'boolean')
+      ? res.data.standings_available
+      : tournamentFormat.value === 'league'
     permissions.can_manage = Boolean(res.data?.permissions?.can_manage)
     permissions.can_bootstrap = Boolean(res.data?.permissions?.can_bootstrap)
     requiresAccessCode.value = false
@@ -563,6 +633,96 @@ onMounted(() => {
 .hint {
   margin-top: 0.25rem;
   color: #334155;
+}
+
+.standings-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  padding: 0.9rem;
+  margin-bottom: 0.9rem;
+}
+
+.standings-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.6rem;
+}
+
+.format-chip {
+  border-radius: 999px;
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 0.2rem 0.55rem;
+}
+
+.standings-wrap {
+  overflow-x: auto;
+}
+
+.standings-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 760px;
+}
+
+.standings-table th,
+.standings-table td {
+  border: 1px solid #e2e8f0;
+  padding: 0.45rem 0.52rem;
+  text-align: center;
+  font-size: 0.86rem;
+}
+
+.standings-table th {
+  background: #f8fafc;
+  color: #334155;
+}
+
+.standings-table td.team-col {
+  text-align: left;
+  font-weight: 600;
+}
+
+.standings-table td.pts {
+  font-weight: 800;
+}
+
+.standings-table tr.top {
+  background: #ecfdf5;
+}
+
+.standings-table tr.neutral {
+  background: #ffffff;
+}
+
+.standings-table tr.bottom {
+  background: #fef2f2;
+}
+
+.tiebreak-box {
+  margin-top: 0.7rem;
+  border: 1px dashed #cbd5e1;
+  border-radius: 10px;
+  padding: 0.62rem 0.72rem;
+  background: #f8fafc;
+}
+
+.tiebreak-box h3 {
+  margin-bottom: 0.35rem;
+  font-size: 0.95rem;
+}
+
+.tiebreak-box ol {
+  margin-left: 1rem;
+  display: grid;
+  gap: 0.2rem;
 }
 
 @media (max-width: 700px) {

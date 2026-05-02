@@ -273,6 +273,7 @@ $app->group('/api', function ($group) use (
     $group->get('/matches/{id:[0-9]+}', [$matchController, 'getMatchCenter']);
     $group->patch('/matches/{id:[0-9]+}/status', [$matchController, 'updateMatchStatus']);
     $group->patch('/matches/{id:[0-9]+}/score', [$matchController, 'submitMatchScore']);
+    $group->patch('/matches/{id:[0-9]+}/score/finalize', [$matchController, 'overrideMatchScore']);
     $group->patch('/matches/{id:[0-9]+}/confirm', [$matchController, 'confirmMatchResult']);
     $group->post('/matches/{id:[0-9]+}/disputes', [$matchController, 'openDispute']);
     $group->patch('/matches/{id:[0-9]+}/disputes/{disputeId:[0-9]+}', [$matchController, 'updateDispute']);

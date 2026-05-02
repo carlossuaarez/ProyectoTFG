@@ -41,6 +41,14 @@ class MatchController
             $matches = $this->getTournamentMatchesFlat($tournamentId);
             $phaseTimeline = $this->buildPhaseTimeline($tournamentId);
             $teamsCount = $this->scalar("SELECT COUNT(*) FROM teams WHERE tournament_id = ?", [$tournamentId]);
+            $format = (string)($tournament['format'] ?? 'single_elim');
+
+            $standings = [];
+            $standingsRules = [];
+            if ($format === 'league') {
+                $standings = $this->buildLeagueStandings($tournamentId);
+                $standingsRules = $this->getStandingsRules();
+            }
 
             $roundsMap = [];
             foreach ($matches as $match) {
@@ -66,11 +74,16 @@ class MatchController
                     'id' => (int)$tournament['id'],
                     'name' => (string)$tournament['name'],
                     'max_teams' => (int)$tournament['max_teams'],
+                    'format' => $format,
                     'visibility' => (string)$tournament['visibility'],
                     'created_by' => (int)$tournament['created_by'],
                 ],
                 'rounds' => $rounds,
                 'phase_timeline' => $phaseTimeline,
+                'standings' => $standings,
+                'standings_tiebreak_rules' => $standingsRules,
+                'tiebreak_rules' => $standingsRules,
+                'standings_available' => ($format === 'league'),
                 'permissions' => [
                     'can_manage' => $isManager,
                     'can_bootstrap' => $canBootstrap,
@@ -321,6 +334,8 @@ class MatchController
                 'permissions' => [
                     'can_manage' => $isManager,
                     'can_report_score' => $isManager || $flags['is_team_a_officer'] || $flags['is_team_b_officer'],
+                    'can_force_edit_result' => $isManager,
+                    'can_override_score' => $isManager,
                     'can_confirm_as_team_a' => !$isManager && $flags['is_team_a_captain'],
                     'can_confirm_as_team_b' => !$isManager && $flags['is_team_b_captain'],
                     'can_dispute' => $isManager || $flags['is_team_a_officer'] || $flags['is_team_b_officer'],
@@ -375,7 +390,8 @@ class MatchController
                 return $this->json($res, ['error' => 'Solo el creador o admin puede cambiar el estado'], 403);
             }
 
-            if ($newStatus === 'finalized' && !$match['winner_team_id']) {
+            $tournamentFormat = (string)($match['tournament_format'] ?? 'single_elim');
+            if ($newStatus === 'finalized' && !$match['winner_team_id'] && $tournamentFormat !== 'league') {
                 $this->db->rollBack();
                 return $this->json($res, ['error' => 'No se puede finalizar sin equipo ganador'], 400);
             }
@@ -479,7 +495,10 @@ class MatchController
                 return $this->json($res, ['error' => 'Este partido aun no tiene equipos asignados'], 400);
             }
 
-            if ($teamA && $teamB && $scoreA === $scoreB) {
+            $tournamentFormat = (string)($match['tournament_format'] ?? 'single_elim');
+            $isLeague = ($tournamentFormat === 'league');
+
+            if ($teamA && $teamB && $scoreA === $scoreB && !$isLeague) {
                 $this->db->rollBack();
                 return $this->json($res, ['error' => 'No puede haber empate en este tipo de partido'], 400);
             }
@@ -488,6 +507,8 @@ class MatchController
                 $winner = $teamA;
             } elseif (!$teamA && $teamB) {
                 $winner = $teamB;
+            } elseif ($scoreA === $scoreB) {
+                $winner = null;
             } else {
                 $winner = ($scoreA > $scoreB) ? $teamA : $teamB;
             }
@@ -562,7 +583,9 @@ class MatchController
                         'auto_bye' => true,
                     ]
                 );
-                $this->propagateWinnerToChildren($matchId);
+                if ($winner) {
+                    $this->propagateWinnerToChildren($matchId);
+                }
             }
 
             $this->db->commit();
@@ -612,7 +635,8 @@ class MatchController
                 return $this->json($res, ['error' => 'La doble confirmacion requiere 2 equipos asignados'], 400);
             }
 
-            if (!(int)$match['winner_team_id']) {
+            $tournamentFormat = (string)($match['tournament_format'] ?? 'single_elim');
+            if (!(int)$match['winner_team_id'] && $tournamentFormat !== 'league') {
                 $this->db->rollBack();
                 return $this->json($res, ['error' => 'Primero debes reportar un resultado con ganador'], 400);
             }
@@ -662,7 +686,9 @@ class MatchController
                     $userId,
                     ['winner_team_id' => (int)$match['winner_team_id']]
                 );
-                $this->propagateWinnerToChildren($matchId);
+                if ((int)$match['winner_team_id']) {
+                    $this->propagateWinnerToChildren($matchId);
+                }
             }
 
             $this->db->commit();
@@ -863,7 +889,14 @@ class MatchController
     private function getTournamentById(int $tournamentId): ?array
     {
         $stmt = $this->db->prepare("
-            SELECT id, name, max_teams, COALESCE(visibility, 'public') AS visibility, access_code_hash, created_by
+            SELECT
+                id,
+                name,
+                max_teams,
+                COALESCE(visibility, 'public') AS visibility,
+                access_code_hash,
+                created_by,
+                COALESCE(format, 'single_elim') AS format
             FROM tournaments
             WHERE id = ?
             LIMIT 1
@@ -883,6 +916,7 @@ class MatchController
                 COALESCE(t.visibility, 'public') AS tournament_visibility,
                 t.access_code_hash AS tournament_access_code_hash,
                 t.max_teams AS tournament_max_teams,
+                COALESCE(t.format, 'single_elim') AS tournament_format,
                 ta.name AS team_a_name,
                 ta.logo_url AS team_a_logo_url,
                 ta.color_hex AS team_a_color_hex,
@@ -1247,6 +1281,142 @@ class MatchController
             return 'Octavos';
         }
         return 'Ronda ' . $round;
+    }
+
+    private function buildLeagueStandings(int $tournamentId): array
+    {
+        $teamsStmt = $this->db->prepare("
+            SELECT id, name
+            FROM teams
+            WHERE tournament_id = ?
+            ORDER BY registered_at ASC, id ASC
+        ");
+        $teamsStmt->execute([$tournamentId]);
+        $teams = $teamsStmt->fetchAll(PDO::FETCH_ASSOC);
+        if (empty($teams)) {
+            return [];
+        }
+
+        $table = [];
+        foreach ($teams as $team) {
+            $teamId = (int)$team['id'];
+            $table[$teamId] = [
+                'team_id' => $teamId,
+                'team_name' => (string)$team['name'],
+                'played' => 0,
+                'won' => 0,
+                'drawn' => 0,
+                'lost' => 0,
+                'goals_for' => 0,
+                'goals_against' => 0,
+                'goal_diff' => 0,
+                'points' => 0,
+            ];
+        }
+
+        $h2hPoints = [];
+        $matchesStmt = $this->db->prepare("
+            SELECT team_a_id, team_b_id, score_a, score_b
+            FROM tournament_matches
+            WHERE tournament_id = ?
+              AND status = 'finalized'
+              AND team_a_id IS NOT NULL
+              AND team_b_id IS NOT NULL
+        ");
+        $matchesStmt->execute([$tournamentId]);
+        $matches = $matchesStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        foreach ($matches as $match) {
+            $teamAId = (int)$match['team_a_id'];
+            $teamBId = (int)$match['team_b_id'];
+            if (!isset($table[$teamAId]) || !isset($table[$teamBId])) {
+                continue;
+            }
+
+            $scoreA = (int)$match['score_a'];
+            $scoreB = (int)$match['score_b'];
+
+            $table[$teamAId]['played']++;
+            $table[$teamBId]['played']++;
+            $table[$teamAId]['goals_for'] += $scoreA;
+            $table[$teamAId]['goals_against'] += $scoreB;
+            $table[$teamBId]['goals_for'] += $scoreB;
+            $table[$teamBId]['goals_against'] += $scoreA;
+
+            $h2hPoints[$teamAId] ??= [];
+            $h2hPoints[$teamBId] ??= [];
+            $h2hPoints[$teamAId][$teamBId] = (int)($h2hPoints[$teamAId][$teamBId] ?? 0);
+            $h2hPoints[$teamBId][$teamAId] = (int)($h2hPoints[$teamBId][$teamAId] ?? 0);
+
+            if ($scoreA > $scoreB) {
+                $table[$teamAId]['won']++;
+                $table[$teamBId]['lost']++;
+                $table[$teamAId]['points'] += 3;
+                $h2hPoints[$teamAId][$teamBId] += 3;
+            } elseif ($scoreA < $scoreB) {
+                $table[$teamBId]['won']++;
+                $table[$teamAId]['lost']++;
+                $table[$teamBId]['points'] += 3;
+                $h2hPoints[$teamBId][$teamAId] += 3;
+            } else {
+                $table[$teamAId]['drawn']++;
+                $table[$teamBId]['drawn']++;
+                $table[$teamAId]['points'] += 1;
+                $table[$teamBId]['points'] += 1;
+                $h2hPoints[$teamAId][$teamBId] += 1;
+                $h2hPoints[$teamBId][$teamAId] += 1;
+            }
+        }
+
+        foreach ($table as &$row) {
+            $row['goal_diff'] = (int)$row['goals_for'] - (int)$row['goals_against'];
+        }
+        unset($row);
+
+        $rows = array_values($table);
+        usort($rows, function (array $a, array $b) use ($h2hPoints): int {
+            if ($a['points'] !== $b['points']) {
+                return $b['points'] <=> $a['points'];
+            }
+            if ($a['goal_diff'] !== $b['goal_diff']) {
+                return $b['goal_diff'] <=> $a['goal_diff'];
+            }
+            if ($a['goals_for'] !== $b['goals_for']) {
+                return $b['goals_for'] <=> $a['goals_for'];
+            }
+
+            $aVsB = (int)($h2hPoints[$a['team_id']][$b['team_id']] ?? 0);
+            $bVsA = (int)($h2hPoints[$b['team_id']][$a['team_id']] ?? 0);
+            if ($aVsB !== $bVsA) {
+                return $bVsA <=> $aVsB;
+            }
+
+            $nameCmp = strcasecmp((string)$a['team_name'], (string)$b['team_name']);
+            if ($nameCmp !== 0) {
+                return $nameCmp;
+            }
+
+            return $a['team_id'] <=> $b['team_id'];
+        });
+
+        $position = 1;
+        foreach ($rows as &$row) {
+            $row['position'] = $position++;
+        }
+        unset($row);
+
+        return $rows;
+    }
+
+    private function getStandingsRules(): array
+    {
+        return [
+            'Puntos totales (PTS).',
+            'Diferencia de goles (DG).',
+            'Goles a favor (GF).',
+            'Puntos en enfrentamiento directo entre empatados.',
+            'Orden alfabético del nombre de equipo.',
+        ];
     }
 
     private function logMatchEvent(int $matchId, string $eventType, ?int $actorUserId, array $payload = []): void

@@ -110,7 +110,20 @@
             </button>
           </form>
 
+          <p v-if="permissions.can_force_edit_result" class="muted force-hint">
+            Puedes corregir un partido ya finalizado usando la acción de edición directa.
+          </p>
+
           <div class="actions-row">
+            <button
+              type="button"
+              class="action-btn warning"
+              :disabled="statusLoading || !permissions.can_force_edit_result"
+              @click="forceSaveAndFinalizeScore"
+            >
+              {{ statusLoading ? 'Aplicando...' : 'Editar resultado y dejar finalizado' }}
+            </button>
+
             <button
               type="button"
               class="action-btn secondary"
@@ -248,6 +261,7 @@ const tournament = ref(null)
 const permissions = reactive({
   can_manage: false,
   can_report_score: false,
+  can_force_edit_result: false,
   can_confirm_as_team_a: false,
   can_confirm_as_team_b: false,
   can_dispute: false
@@ -387,6 +401,7 @@ async function fetchMatchCenter() {
     const p = res.data?.permissions || {}
     permissions.can_manage = Boolean(p.can_manage)
     permissions.can_report_score = Boolean(p.can_report_score)
+    permissions.can_force_edit_result = Boolean(p.can_force_edit_result || p.can_override_score)
     permissions.can_confirm_as_team_a = Boolean(p.can_confirm_as_team_a)
     permissions.can_confirm_as_team_b = Boolean(p.can_confirm_as_team_b)
     permissions.can_dispute = Boolean(p.can_dispute)
@@ -485,6 +500,27 @@ async function setMatchStatus(status) {
     await fetchMatchCenter()
   } catch (err) {
     actionError.value = err.response?.data?.error || 'No se pudo actualizar el estado.'
+  } finally {
+    statusLoading.value = false
+  }
+}
+
+async function forceSaveAndFinalizeScore() {
+  if (!permissions.can_force_edit_result) return
+  actionError.value = ''
+  actionMessage.value = ''
+  statusLoading.value = true
+
+  try {
+    const payload = {
+      score_a: Number(scoreForm.score_a),
+      score_b: Number(scoreForm.score_b)
+    }
+    const res = await api.patch(`/matches/${route.params.id}/score/finalize`, payload)
+    actionMessage.value = res.data?.message || 'Resultado editado y partido finalizado.'
+    await fetchMatchCenter()
+  } catch (err) {
+    actionError.value = err.response?.data?.error || 'No se pudo editar el resultado final.'
   } finally {
     statusLoading.value = false
   }
@@ -763,6 +799,10 @@ onMounted(() => {
   background: linear-gradient(135deg, #0f766e, #14b8a6);
 }
 
+.action-btn.warning {
+  background: linear-gradient(135deg, #b45309, #f59e0b);
+}
+
 .action-btn.ghost {
   background: #fff;
   color: #334155;
@@ -778,6 +818,10 @@ onMounted(() => {
   display: flex;
   flex-wrap: wrap;
   gap: 0.55rem;
+}
+
+.force-hint {
+  margin-top: 0.5rem;
 }
 
 .msg {
