@@ -10,7 +10,7 @@
     <footer class="footer">
       <div class="footer-inner">
         <p>© 2026 TourneyHub · Plataforma de torneos deportivos y e-sports</p>
-        <p class="footer-note">Proyecto DAW · Interfaz responsive para desktop, tablet y móvil</p>
+        <p class="footer-note"></p>
       </div>
     </footer>
   </div>

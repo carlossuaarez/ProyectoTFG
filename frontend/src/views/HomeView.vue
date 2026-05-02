@@ -34,19 +34,6 @@
         <p v-if="privateCodeError" class="private-msg error">{{ privateCodeError }}</p>
       </section>
     </div>
-
-    <div class="hero-panel">
-      <h3>¿Para quién está pensado?</h3>
-      <ul>
-        <li>Clubes deportivos locales</li>
-        <li>Academias y escuelas</li>
-        <li>Ligas amateur de barrio</li>
-        <li>Centros de e-sports y gaming bars</li>
-      </ul>
-      <p class="panel-note">
-        Producto con potencial comercial: puede ofrecerse como servicio para gestión de competiciones.
-      </p>
-    </div>
   </section>
 
   <section class="tournaments-block">
@@ -98,10 +85,6 @@ const privateCodeError = ref('')
 const tournaments = ref([])
 const loading = ref(true)
 const error = ref('')
-
-function normalizeText(value) {
-  return String(value || '').trim().toLowerCase()
-}
 
 function normalizeTournament(t) {
   const teamsCount = Number(t.teams_count ?? 0)
@@ -220,14 +203,10 @@ onMounted(fetchHomeTournaments)
 
 <style scoped>
 .hero {
-  display: grid;
-  grid-template-columns: 2fr 1fr;
-  gap: 1.25rem;
   margin-bottom: 1.3rem;
 }
 
-.hero-content,
-.hero-panel {
+.hero-content {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -336,29 +315,6 @@ onMounted(fetchHomeTournaments)
   font-weight: 600;
 }
 
-.hero-panel h3 {
-  margin-bottom: 0.75rem;
-}
-
-.hero-panel ul {
-  list-style: none;
-  display: grid;
-  gap: 0.45rem;
-  margin-bottom: 0.75rem;
-}
-
-.hero-panel li {
-  background: #f8fafc;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 0.55rem 0.7rem;
-}
-
-.panel-note {
-  color: #334155;
-  font-size: 0.9rem;
-}
-
 .tournaments-block {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -400,12 +356,6 @@ onMounted(fetchHomeTournaments)
   border-color: #fecaca;
   color: #991b1b;
   background: #fff1f2;
-}
-
-@media (max-width: 1024px) {
-  .hero {
-    grid-template-columns: 1fr;
-  }
 }
 
 @media (max-width: 768px) {
