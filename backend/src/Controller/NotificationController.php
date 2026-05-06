@@ -21,7 +21,7 @@ class NotificationController
                 title VARCHAR(140) NOT NULL,
                 body VARCHAR(500) NOT NULL,
                 link_url VARCHAR(255) NULL,
-                meta_json JSON NULL,
+                meta_json LONGTEXT NULL,
                 is_read TINYINT(1) NOT NULL DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 read_at DATETIME NULL,

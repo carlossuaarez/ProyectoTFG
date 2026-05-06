@@ -119,7 +119,11 @@ $teamController = new TeamController($db);
 $userDashboardController = new UserDashboardController($db);
 $matchController = new MatchController($db);
 $notificationController = new NotificationController($db);
-$notificationController->bootstrapTables();
+try {
+    $notificationController->bootstrapTables();
+} catch (Throwable $e) {
+    error_log('Notification bootstrap skipped: ' . $e->getMessage());
+}
 $authMiddleware = new AuthMiddleware();
 
 // ---- Rate limiters auth ----
