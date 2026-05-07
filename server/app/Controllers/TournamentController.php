@@ -4,44 +4,24 @@ use Psr\Http\Message\ServerRequestInterface as Request;
 use Firebase\JWT\JWT;
 use Firebase\JWT\Key;
 
+require_once __DIR__ . '/../Repositories/TournamentRepository.php';
+
 class TournamentController
 {
     private PDO $db;
+    private TournamentRepository $tournamentRepository;
 
     public function __construct(PDO $db)
     {
         $this->db = $db;
+        $this->tournamentRepository = new TournamentRepository($db);
     }
 
     // Listado público compatible con legacy
     public function getAll(Request $req, Response $res): Response
     {
         try {
-            $stmt = $this->db->query("
-                SELECT
-                    t.id, t.name, t.description, t.game, t.type, t.max_teams, t.format,
-                    t.start_date, t.start_time, t.prize,
-                    t.location_name, t.location_address, t.location_lat, t.location_lng, t.is_online,
-                    COALESCE(t.visibility, 'public') AS visibility,
-                    COALESCE(tc.teams_count, 0) AS teams_count,
-                    CASE
-                        WHEN COALESCE(tc.teams_count, 0) >= t.max_teams THEN 1
-                        ELSE 0
-                    END AS is_full,
-                    t.created_by,
-                    u.username AS created_by_username,
-                    t.created_at
-                FROM tournaments t
-                LEFT JOIN users u ON u.id = t.created_by
-                LEFT JOIN (
-                    SELECT tournament_id, COUNT(*) AS teams_count
-                    FROM teams
-                    GROUP BY tournament_id
-                ) tc ON tc.tournament_id = t.id
-                WHERE COALESCE(t.visibility, 'public') = 'public'
-                ORDER BY t.start_date ASC, t.start_time ASC, t.id DESC
-            ");
-            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $rows = $this->tournamentRepository->fetchPublicList();
             return $this->json($res, $rows);
         } catch (Throwable $e) {
             error_log('getAll tournaments error: ' . $e->getMessage());
@@ -58,17 +38,7 @@ class TournamentController
         }
 
         try {
-            $stmt = $this->db->prepare("
-                SELECT
-                    t.*,
-                    u.username AS created_by_username
-                FROM tournaments t
-                LEFT JOIN users u ON u.id = t.created_by
-                WHERE t.id = ?
-                LIMIT 1
-            ");
-            $stmt->execute([$id]);
-            $tournament = $stmt->fetch(PDO::FETCH_ASSOC);
+            $tournament = $this->tournamentRepository->findByIdWithCreator($id);
 
             if (!$tournament) {
                 return $this->json($res, ['error' => 'Torneo no encontrado'], 404);
@@ -94,14 +64,7 @@ class TournamentController
                 }
             }
 
-            $stmtTeams = $this->db->prepare("
-                SELECT id, tournament_id, name, captain_id, registered_at
-                FROM teams
-                WHERE tournament_id = ?
-                ORDER BY registered_at ASC
-            ");
-            $stmtTeams->execute([$id]);
-            $tournament['teams'] = $stmtTeams->fetchAll(PDO::FETCH_ASSOC);
+            $tournament['teams'] = $this->tournamentRepository->fetchTeamsByTournamentId($id);
             $teamsCount = count($tournament['teams']);
             $tournament['teams_count'] = $teamsCount;
             $tournament['is_full'] = ($teamsCount >= (int)($tournament['max_teams'] ?? 0)) ? 1 : 0;
@@ -212,39 +175,30 @@ class TournamentController
         }
 
         try {
-            $stmt = $this->db->prepare("
-                INSERT INTO tournaments (
-                    name, description, game, type, max_teams, format, start_date, start_time, prize, created_by,
-                    location_name, location_address, location_lat, location_lng, is_online,
-                    visibility, access_code_hash, access_code_last4
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ");
-
-            $stmt->execute([
-                $name,
-                ($description !== '' ? $description : null),
-                $game,
-                $type,
-                $maxTeams,
-                $format,
-                $startDate,
-                $startTimeSql,
-                ($prize !== '' ? $prize : null),
-                (int)$user['id'],
-                ($locationName !== '' ? $locationName : null),
-                ($locationAddress !== '' ? $locationAddress : null),
-                $locationLat,
-                $locationLng,
-                $isOnline,
-                $visibility,
-                $accessCodeHash,
-                $accessCodeLast4
+            $newId = $this->tournamentRepository->insertTournament([
+                'name' => $name,
+                'description' => ($description !== '' ? $description : null),
+                'game' => $game,
+                'type' => $type,
+                'max_teams' => $maxTeams,
+                'format' => $format,
+                'start_date' => $startDate,
+                'start_time' => $startTimeSql,
+                'prize' => ($prize !== '' ? $prize : null),
+                'created_by' => (int)$user['id'],
+                'location_name' => ($locationName !== '' ? $locationName : null),
+                'location_address' => ($locationAddress !== '' ? $locationAddress : null),
+                'location_lat' => $locationLat,
+                'location_lng' => $locationLng,
+                'is_online' => $isOnline,
+                'visibility' => $visibility,
+                'access_code_hash' => $accessCodeHash,
+                'access_code_last4' => $accessCodeLast4,
             ]);
 
             $payload = [
                 'message' => 'Torneo creado correctamente',
-                'id' => (int)$this->db->lastInsertId()
+                'id' => $newId
             ];
 
             if ($visibility === 'private') {
@@ -271,14 +225,7 @@ class TournamentController
         }
 
         try {
-            $stmtCurrent = $this->db->prepare("
-                SELECT id, created_by, max_teams, COALESCE(visibility, 'public') AS visibility, access_code_hash, access_code_last4
-                FROM tournaments
-                WHERE id = ?
-                LIMIT 1
-            ");
-            $stmtCurrent->execute([$tournamentId]);
-            $current = $stmtCurrent->fetch(PDO::FETCH_ASSOC);
+            $current = $this->tournamentRepository->findByIdWithCreator($tournamentId);
 
             if (!$current) {
                 return $this->json($res, ['error' => 'Torneo no encontrado'], 404);
@@ -385,46 +332,23 @@ class TournamentController
                 }
             }
 
-            $stmtUpdate = $this->db->prepare("
-                UPDATE tournaments
-                SET
-                    name = ?,
-                    description = ?,
-                    game = ?,
-                    type = ?,
-                    format = ?,
-                    start_date = ?,
-                    start_time = ?,
-                    prize = ?,
-                    location_name = ?,
-                    location_address = ?,
-                    location_lat = ?,
-                    location_lng = ?,
-                    is_online = ?,
-                    visibility = ?,
-                    access_code_hash = ?,
-                    access_code_last4 = ?
-                WHERE id = ?
-            ");
-
-            $stmtUpdate->execute([
-                $name,
-                ($description !== '' ? $description : null),
-                $game,
-                $type,
-                $format,
-                $startDate,
-                $startTimeSql,
-                ($prize !== '' ? $prize : null),
-                ($locationName !== '' ? $locationName : null),
-                ($locationAddress !== '' ? $locationAddress : null),
-                $locationLat,
-                $locationLng,
-                $isOnline,
-                $visibility,
-                $accessCodeHash,
-                $accessCodeLast4,
-                $tournamentId
+            $this->tournamentRepository->updateTournamentById($tournamentId, [
+                'name' => $name,
+                'description' => ($description !== '' ? $description : null),
+                'game' => $game,
+                'type' => $type,
+                'format' => $format,
+                'start_date' => $startDate,
+                'start_time' => $startTimeSql,
+                'prize' => ($prize !== '' ? $prize : null),
+                'location_name' => ($locationName !== '' ? $locationName : null),
+                'location_address' => ($locationAddress !== '' ? $locationAddress : null),
+                'location_lat' => $locationLat,
+                'location_lng' => $locationLng,
+                'is_online' => $isOnline,
+                'visibility' => $visibility,
+                'access_code_hash' => $accessCodeHash,
+                'access_code_last4' => $accessCodeLast4,
             ]);
 
             $payload = ['message' => 'Torneo actualizado correctamente'];
@@ -492,14 +416,7 @@ class TournamentController
         try {
             $this->db->beginTransaction();
 
-            $stmtTournament = $this->db->prepare("
-                SELECT id, max_teams, COALESCE(visibility, 'public') AS visibility, access_code_hash
-                FROM tournaments
-                WHERE id = ?
-                FOR UPDATE
-            ");
-            $stmtTournament->execute([$tournamentId]);
-            $tournament = $stmtTournament->fetch(PDO::FETCH_ASSOC);
+            $tournament = $this->tournamentRepository->findByIdForUpdate($tournamentId);
 
             if (!$tournament) {
                 $this->db->rollBack();
@@ -515,39 +432,25 @@ class TournamentController
             }
 
             // No permitir 2 equipos del mismo capitán en el mismo torneo
-            $stmtCaptain = $this->db->prepare("
-                SELECT id FROM teams WHERE tournament_id = ? AND captain_id = ? LIMIT 1
-            ");
-            $stmtCaptain->execute([$tournamentId, $userId]);
-            if ($stmtCaptain->fetch(PDO::FETCH_ASSOC)) {
+            if ($this->tournamentRepository->captainHasTeamInTournament($tournamentId, $userId)) {
                 $this->db->rollBack();
                 return $this->json($res, ['error' => 'Ya tienes un equipo inscrito en este torneo'], 409);
             }
 
             // Nombre de equipo único por torneo (case-insensitive)
-            $stmtName = $this->db->prepare("
-                SELECT id FROM teams WHERE tournament_id = ? AND LOWER(name) = LOWER(?) LIMIT 1
-            ");
-            $stmtName->execute([$tournamentId, $teamName]);
-            if ($stmtName->fetch(PDO::FETCH_ASSOC)) {
+            if ($this->tournamentRepository->teamNameExistsInTournament($tournamentId, $teamName)) {
                 $this->db->rollBack();
                 return $this->json($res, ['error' => 'Ya existe un equipo con ese nombre en este torneo'], 409);
             }
 
-            $stmtCount = $this->db->prepare("SELECT COUNT(*) FROM teams WHERE tournament_id = ?");
-            $stmtCount->execute([$tournamentId]);
-            $currentTeams = (int)$stmtCount->fetchColumn();
+            $currentTeams = $this->tournamentRepository->countTeams($tournamentId);
 
             if ($currentTeams >= (int)$tournament['max_teams']) {
                 $this->db->rollBack();
                 return $this->json($res, ['error' => 'El torneo ya está lleno'], 409);
             }
 
-            $stmtInsert = $this->db->prepare("
-                INSERT INTO teams (tournament_id, name, captain_id)
-                VALUES (?, ?, ?)
-            ");
-            $stmtInsert->execute([$tournamentId, $teamName, $userId]);
+            $this->tournamentRepository->insertTeam($tournamentId, $teamName, $userId);
 
             $this->db->commit();
             return $this->json($res, ['message' => 'Equipo inscrito correctamente'], 201);
@@ -566,16 +469,7 @@ class TournamentController
         $last4 = substr($code, -4);
 
         // Búsqueda rápida por últimos 4 caracteres
-        $stmt = $this->db->prepare("
-            SELECT id, access_code_hash
-            FROM tournaments
-            WHERE COALESCE(visibility, 'public') = 'private'
-              AND access_code_hash IS NOT NULL
-              AND access_code_last4 = ?
-            ORDER BY id DESC
-        ");
-        $stmt->execute([$last4]);
-        $candidates = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $candidates = $this->tournamentRepository->findPrivateCandidatesByLast4($last4);
 
         foreach ($candidates as $row) {
             if ($this->verifyAccessCode($code, (string)($row['access_code_hash'] ?? ''))) {
@@ -584,15 +478,7 @@ class TournamentController
         }
 
         // Fallback para torneos legacy sin access_code_last4 rellenado
-        $stmtLegacy = $this->db->query("
-            SELECT id, access_code_hash
-            FROM tournaments
-            WHERE COALESCE(visibility, 'public') = 'private'
-              AND access_code_hash IS NOT NULL
-              AND (access_code_last4 IS NULL OR access_code_last4 = '')
-            ORDER BY id DESC
-        ");
-        $legacyCandidates = $stmtLegacy->fetchAll(PDO::FETCH_ASSOC);
+        $legacyCandidates = $this->tournamentRepository->findLegacyPrivateCandidates();
 
         foreach ($legacyCandidates as $row) {
             if ($this->verifyAccessCode($code, (string)($row['access_code_hash'] ?? ''))) {
@@ -697,13 +583,9 @@ class TournamentController
 
     private function isAccessCodeUnique(string $candidate): bool
     {
-        $stmt = $this->db->query("
-            SELECT access_code_hash
-            FROM tournaments
-            WHERE COALESCE(visibility, 'public') = 'private'
-              AND access_code_hash IS NOT NULL
-        ");
-        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        // optimización: comparar solo candidatos con mismo last4
+        $last4 = substr($candidate, -4);
+        $rows = $this->tournamentRepository->candidatesByLast4ForUniqueness($last4);
 
         foreach ($rows as $row) {
             $hash = (string)($row['access_code_hash'] ?? '');

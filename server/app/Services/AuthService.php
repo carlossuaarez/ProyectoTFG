@@ -1,6 +1,5 @@
 <?php
-use Psr\Http\Message\ResponseInterface as Response;
-use Psr\Http\Message\ServerRequestInterface as Request;
+
 use Firebase\JWT\JWT;
 use Google\Client as GoogleClient;
 
@@ -8,7 +7,8 @@ require_once __DIR__ . '/../Repositories/UserRepository.php';
 require_once __DIR__ . '/../Repositories/LoginChallengeRepository.php';
 require_once __DIR__ . '/../Repositories/RateLimitRepository.php';
 
-class AuthController {
+class AuthService
+{
     private PDO $db;
     private MailService $mailService;
     private UserRepository $userRepository;
@@ -28,104 +28,97 @@ class AuthController {
         $this->rateLimitRepository = new RateLimitRepository($db);
     }
 
-    public function register(Request $req, Response $res)
+    public function register(array $data): array
     {
-        $data = (array)$req->getParsedBody();
-
         $username = trim((string)($data['username'] ?? ''));
         $fullName = $this->normalizeFullName((string)($data['full_name'] ?? ''));
         $email = strtolower(trim((string)($data['email'] ?? '')));
         $password = (string)($data['password'] ?? '');
 
         if ($username === '' || $fullName === '' || $email === '' || $password === '') {
-            return $this->json($res, ['error' => 'Faltan campos (incluyendo nombre y apellidos)'], 400);
+            return $this->result(400, ['error' => 'Faltan campos (incluyendo nombre y apellidos)']);
         }
 
         if (!$this->isValidUsername($username)) {
-            return $this->json($res, ['error' => 'Username inválido (3-30, letras, números o _)'], 400);
+            return $this->result(400, ['error' => 'Username inválido (3-30, letras, números o _)']);
         }
 
         if (!$this->isValidRealFullName($fullName)) {
-            return $this->json($res, ['error' => 'Debes indicar nombre y apellidos reales (mínimo 2 palabras)'], 400);
+            return $this->result(400, ['error' => 'Debes indicar nombre y apellidos reales (mínimo 2 palabras)']);
         }
 
         if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            return $this->json($res, ['error' => 'Email no válido'], 400);
+            return $this->result(400, ['error' => 'Email no válido']);
         }
 
         if (!$this->isStrongPassword($password)) {
-            return $this->json($res, [
+            return $this->result(400, [
                 'error' => 'La contraseña debe tener mínimo 8 caracteres e incluir mayúscula, minúscula y número'
-            ], 400);
+            ]);
         }
 
-        if ($this->usernameExists($username)) {
-            return $this->json($res, ['error' => 'Ese nombre de usuario ya está en uso'], 409);
+        if ($this->userRepository->usernameExists($username)) {
+            return $this->result(409, ['error' => 'Ese nombre de usuario ya está en uso']);
         }
 
         $hash = password_hash($password, PASSWORD_DEFAULT);
 
         try {
             $this->userRepository->insertLocalUser($username, $fullName, $email, $hash);
-            return $this->json($res, ['message' => 'Usuario registrado'], 201);
+            return $this->result(201, ['message' => 'Usuario registrado']);
         } catch (PDOException $e) {
-            return $this->json($res, ['error' => 'Usuario o email ya existe'], 409);
+            return $this->result(409, ['error' => 'Usuario o email ya existe']);
         }
     }
 
-    public function login(Request $req, Response $res)
+    public function login(array $data): array
     {
-        $data = (array)$req->getParsedBody();
-
         $email = strtolower(trim((string)($data['email'] ?? '')));
         $password = (string)($data['password'] ?? '');
 
         if ($email === '' || $password === '') {
-            return $this->json($res, ['error' => 'Email y contraseña son obligatorios'], 400);
+            return $this->result(400, ['error' => 'Email y contraseña son obligatorios']);
         }
 
         $user = $this->userRepository->findByEmail($email);
 
         if (!$user || !password_verify($password, (string)$user['password_hash'])) {
-            return $this->json($res, ['error' => 'Credenciales incorrectas'], 401);
+            return $this->result(401, ['error' => 'Credenciales incorrectas']);
         }
 
         $twoFactorMode = $this->getTwoFactorMode();
         $userTwoFactorEnabled = (int)($user['two_factor_enabled'] ?? 1) === 1;
 
         if (!$userTwoFactorEnabled || $twoFactorMode === 'disabled') {
-            return $this->issueJwtResponse($user, $res);
+            return $this->result(200, ['token' => $this->createJwtToken($user)]);
         }
 
         if ($twoFactorMode === 'shadow') {
-            // No bloquear login ni contaminar la respuesta principal.
             $this->triggerShadowTwoFactor($user);
-            return $this->issueJwtResponse($user, $res);
+            return $this->result(200, ['token' => $this->createJwtToken($user)]);
         }
 
-        // enforced
-        return $this->startTwoFactorChallenge($user, $res);
+        return $this->startTwoFactorChallenge($user);
     }
 
-    public function googleLogin(Request $req, Response $res)
+    public function googleLogin(array $data): array
     {
-        $data = (array)$req->getParsedBody();
         $idToken = trim((string)($data['id_token'] ?? ''));
 
         if ($idToken === '') {
-            return $this->json($res, ['error' => 'id_token es obligatorio'], 400);
+            return $this->result(400, ['error' => 'id_token es obligatorio']);
         }
 
         $googleClientId = $_ENV['GOOGLE_CLIENT_ID'] ?? '';
         if ($googleClientId === '') {
-            return $this->json($res, ['error' => 'Google OAuth no está configurado en el servidor'], 500);
+            return $this->result(500, ['error' => 'Google OAuth no está configurado en el servidor']);
         }
 
         $googleClient = new GoogleClient(['client_id' => $googleClientId]);
         $googlePayload = $googleClient->verifyIdToken($idToken);
 
         if (!$googlePayload) {
-            return $this->json($res, ['error' => 'Token de Google inválido'], 401);
+            return $this->result(401, ['error' => 'Token de Google inválido']);
         }
 
         $googleId = (string)($googlePayload['sub'] ?? '');
@@ -135,11 +128,11 @@ class AuthController {
         $picture = trim((string)($googlePayload['picture'] ?? ''));
 
         if ($googleId === '' || $email === '') {
-            return $this->json($res, ['error' => 'Google no devolvió datos suficientes'], 401);
+            return $this->result(401, ['error' => 'Google no devolvió datos suficientes']);
         }
 
         if (!$emailVerified) {
-            return $this->json($res, ['error' => 'Tu correo de Google no está verificado'], 401);
+            return $this->result(401, ['error' => 'Tu correo de Google no está verificado']);
         }
 
         try {
@@ -150,9 +143,9 @@ class AuthController {
             if (!$user) {
                 if (!$this->isValidRealFullName($name)) {
                     $this->db->rollBack();
-                    return $this->json($res, [
+                    return $this->result(400, [
                         'error' => 'Google no proporcionó un nombre y apellidos válidos. Regístrate con formulario manual.'
-                    ], 400);
+                    ]);
                 }
 
                 $username = $this->generateUniqueUsername($name);
@@ -177,11 +170,7 @@ class AuthController {
                 ) ? $name : null;
 
                 if ($googleIdToSet !== null || $fullNameToSet !== null) {
-                    $this->userRepository->linkGoogleIdAndOptionalName(
-                        (int)$user['id'],
-                        $googleIdToSet,
-                        $fullNameToSet
-                    );
+                    $this->userRepository->linkGoogleIdAndOptionalName((int)$user['id'], $googleIdToSet, $fullNameToSet);
                 }
 
                 $user = $this->userRepository->findById((int)$user['id']);
@@ -197,112 +186,99 @@ class AuthController {
             $userTwoFactorEnabled = (int)($user['two_factor_enabled'] ?? 1) === 1;
 
             if (!$userTwoFactorEnabled || $twoFactorMode === 'disabled') {
-                return $this->issueJwtResponse($user, $res);
+                return $this->result(200, ['token' => $this->createJwtToken($user)]);
             }
 
             if ($twoFactorMode === 'shadow') {
                 $this->triggerShadowTwoFactor($user);
-                return $this->issueJwtResponse($user, $res);
+                return $this->result(200, ['token' => $this->createJwtToken($user)]);
             }
 
-            return $this->startTwoFactorChallenge($user, $res);
+            return $this->startTwoFactorChallenge($user);
         } catch (Throwable $e) {
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
             error_log('Google login error: ' . $e->getMessage());
-            return $this->json($res, ['error' => 'No se pudo completar el login con Google'], 500);
+            return $this->result(500, ['error' => 'No se pudo completar el login con Google']);
         }
     }
 
-    public function verify2fa(Request $req, Response $res)
+    public function verify2fa(array $data): array
     {
         if ($this->getTwoFactorMode() !== 'enforced') {
-            return $this->json($res, ['error' => 'La verificación 2FA no está activa en este entorno.'], 400);
+            return $this->result(400, ['error' => 'La verificación 2FA no está activa en este entorno.']);
         }
-
-        $data = (array)$req->getParsedBody();
 
         $challengeId = trim((string)($data['challenge_id'] ?? ''));
         $code = trim((string)($data['code'] ?? ''));
 
         if ($challengeId === '' || $code === '') {
-            return $this->json($res, ['error' => 'challenge_id y code son obligatorios'], 400);
+            return $this->result(400, ['error' => 'challenge_id y code son obligatorios']);
         }
 
         if (!preg_match('/^\d{6}$/', $code)) {
-            return $this->json($res, ['error' => 'El código debe tener 6 dígitos'], 400);
+            return $this->result(400, ['error' => 'El código debe tener 6 dígitos']);
         }
 
         $challenge = $this->loginChallengeRepository->findChallengeWithUserByPublicId($challengeId);
 
         if (!$challenge) {
-            return $this->json($res, ['error' => 'Desafío 2FA no encontrado'], 404);
+            return $this->result(404, ['error' => 'Desafío 2FA no encontrado']);
         }
 
         if (!empty($challenge['consumed_at'])) {
-            return $this->json($res, ['error' => 'Este código ya fue usado'], 410);
+            return $this->result(410, ['error' => 'Este código ya fue usado']);
         }
 
         if (strtotime((string)$challenge['expires_at']) < time()) {
             $this->loginChallengeRepository->consumeById((int)$challenge['challenge_row_id']);
-            return $this->json($res, ['error' => 'Código expirado, vuelve a iniciar sesión'], 410);
+            return $this->result(410, ['error' => 'Código expirado, vuelve a iniciar sesión']);
         }
 
         $attempts = (int)$challenge['attempts'];
         if ($attempts >= self::OTP_MAX_ATTEMPTS) {
-            return $this->json($res, ['error' => 'Demasiados intentos fallidos. Inicia sesión de nuevo'], 429);
+            return $this->result(429, ['error' => 'Demasiados intentos fallidos. Inicia sesión de nuevo']);
         }
 
         if (!password_verify($code, (string)$challenge['otp_hash'])) {
             $this->loginChallengeRepository->incrementAttempts((int)$challenge['challenge_row_id']);
-
             $remaining = max(0, self::OTP_MAX_ATTEMPTS - ($attempts + 1));
-            return $this->json($res, [
+            return $this->result(401, [
                 'error' => 'Código incorrecto',
                 'remaining_attempts' => $remaining
-            ], 401);
+            ]);
         }
 
         $this->loginChallengeRepository->consumeById((int)$challenge['challenge_row_id']);
 
-        return $this->issueJwtResponse($challenge, $res);
+        return $this->result(200, ['token' => $this->createJwtToken($challenge)]);
     }
 
-    // perfil 
-    public function me(Request $req, Response $res)
+    public function me(int $userId): array
     {
-        $authUser = (array)$req->getAttribute('user');
-        $userId = (int)($authUser['id'] ?? 0);
-
         if ($userId <= 0) {
-            return $this->json($res, ['error' => 'No autorizado'], 401);
+            return $this->result(401, ['error' => 'No autorizado']);
         }
 
-        $user = $this->getUserById($userId);
+        $user = $this->userRepository->findById($userId);
         if (!$user) {
-            return $this->json($res, ['error' => 'Usuario no encontrado'], 404);
+            return $this->result(404, ['error' => 'Usuario no encontrado']);
         }
 
-        return $this->json($res, ['user' => $this->publicUser($user)]);
+        return $this->result(200, ['user' => $this->publicUser($user)]);
     }
 
-    // actualizar perfil
-    public function updateProfile(Request $req, Response $res)
+    public function updateProfile(int $userId, array $data): array
     {
-        $authUser = (array)$req->getAttribute('user');
-        $userId = (int)($authUser['id'] ?? 0);
-
         if ($userId <= 0) {
-            return $this->json($res, ['error' => 'No autorizado'], 401);
+            return $this->result(401, ['error' => 'No autorizado']);
         }
 
-        $currentUser = $this->getUserById($userId);
+        $currentUser = $this->userRepository->findById($userId);
         if (!$currentUser) {
-            return $this->json($res, ['error' => 'Usuario no encontrado'], 404);
+            return $this->result(404, ['error' => 'Usuario no encontrado']);
         }
-
-        $data = (array)$req->getParsedBody();
 
         $username = array_key_exists('username', $data)
             ? trim((string)$data['username'])
@@ -325,23 +301,23 @@ class AuthController {
             : '';
 
         if (!$this->isValidUsername($username)) {
-            return $this->json($res, ['error' => 'Username inválido (3-30, letras, números o _)'], 400);
+            return $this->result(400, ['error' => 'Username inválido (3-30, letras, números o _)']);
         }
 
-        if ($this->usernameExists($username, $userId)) {
-            return $this->json($res, ['error' => 'Ese nombre de usuario ya está en uso'], 409);
+        if ($this->userRepository->usernameExists($username, $userId)) {
+            return $this->result(409, ['error' => 'Ese nombre de usuario ya está en uso']);
         }
 
         if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            return $this->json($res, ['error' => 'Email no válido'], 400);
+            return $this->result(400, ['error' => 'Email no válido']);
         }
 
         if (array_key_exists('full_name', $data) && !$this->isValidRealFullName($fullName)) {
-            return $this->json($res, ['error' => 'Debes indicar nombre y apellidos reales (mínimo 2 palabras)'], 400);
+            return $this->result(400, ['error' => 'Debes indicar nombre y apellidos reales (mínimo 2 palabras)']);
         }
 
         if (mb_strlen($fullName) > 100) {
-            return $this->json($res, ['error' => 'El nombre no puede superar 100 caracteres'], 400);
+            return $this->result(400, ['error' => 'El nombre no puede superar 100 caracteres']);
         }
 
         if ($avatarFileBase64 !== '') {
@@ -352,15 +328,15 @@ class AuthController {
                     (string)($currentUser['avatar_url'] ?? '')
                 );
             } catch (InvalidArgumentException $e) {
-                return $this->json($res, ['error' => $e->getMessage()], 400);
+                return $this->result(400, ['error' => $e->getMessage()]);
             } catch (Throwable $e) {
                 error_log('avatar upload error: ' . $e->getMessage());
-                return $this->json($res, ['error' => 'No se pudo guardar la foto de perfil'], 500);
+                return $this->result(500, ['error' => 'No se pudo guardar la foto de perfil']);
             }
         }
 
         if (!$this->isValidAvatarUrl($avatarUrl)) {
-            return $this->json($res, ['error' => 'La URL de la foto no es válida'], 400);
+            return $this->result(400, ['error' => 'La URL de la foto no es válida']);
         }
 
         try {
@@ -372,34 +348,34 @@ class AuthController {
                 ($avatarUrl !== '' ? $avatarUrl : null)
             );
 
-            $updatedUser = $this->getUserById($userId);
+            $updatedUser = $this->userRepository->findById($userId);
             if (!$updatedUser) {
-                return $this->json($res, ['error' => 'Usuario no encontrado'], 404);
+                return $this->result(404, ['error' => 'Usuario no encontrado']);
             }
 
             $newToken = $this->createJwtToken($updatedUser);
 
-            return $this->json($res, [
+            return $this->result(200, [
                 'message' => 'Perfil actualizado correctamente',
                 'token' => $newToken,
                 'user' => $this->publicUser($updatedUser)
             ]);
         } catch (PDOException $e) {
             if ((int)$e->getCode() === 23000 || str_contains($e->getMessage(), 'Duplicate entry')) {
-                return $this->json($res, ['error' => 'El username o email ya está en uso'], 409);
+                return $this->result(409, ['error' => 'El username o email ya está en uso']);
             }
-            return $this->json($res, ['error' => 'No se pudo actualizar el perfil'], 500);
+            return $this->result(500, ['error' => 'No se pudo actualizar el perfil']);
         }
     }
 
-    private function startTwoFactorChallenge(array $user, Response $res): Response
+    private function startTwoFactorChallenge(array $user): array
     {
         $retryAfter = 0;
-        if (!$this->consumeRateLimit('otp_user', 'user:' . (string)$user['id'], 3, 600, $retryAfter)) {
-            return $this->json($res, [
+        if (!$this->rateLimitRepository->consume('otp_user', 'user:' . (string)$user['id'], 3, 600, $retryAfter)) {
+            return $this->result(429, [
                 'error' => 'Has solicitado demasiados códigos. Espera antes de volver a intentarlo.',
                 'retry_after_seconds' => $retryAfter
-            ], 429);
+            ]);
         }
 
         $otpCode = str_pad((string)random_int(0, 999999), 6, '0', STR_PAD_LEFT);
@@ -407,9 +383,7 @@ class AuthController {
         $challengeId = $this->generateUuidV4();
         $expiresAt = (new DateTimeImmutable('+' . self::OTP_TTL_MINUTES . ' minutes'))->format('Y-m-d H:i:s');
 
-        // Invalida desafíos anteriores sin consumir para este usuario
         $this->loginChallengeRepository->invalidateOpenByUserId((int)$user['id']);
-
         $this->loginChallengeRepository->insert($challengeId, (int)$user['id'], $otpHash, $expiresAt);
 
         try {
@@ -423,37 +397,27 @@ class AuthController {
 
             if ($this->shouldBypassTwoFactorOnMailFailure() && $this->getTwoFactorMode() !== 'enforced') {
                 $this->loginChallengeRepository->deleteByPublicId($challengeId);
-                return $this->issueJwtResponse($user, $res);
+                return $this->result(200, ['token' => $this->createJwtToken($user)]);
             }
 
             $this->loginChallengeRepository->deleteByPublicId($challengeId);
-            return $this->json($res, ['error' => 'No se pudo enviar el código de verificación.'], 500);
+            return $this->result(500, ['error' => 'No se pudo enviar el código de verificación.']);
         }
 
-        return $this->json($res, [
+        return $this->result(200, [
             'requires_2fa' => true,
             'challenge_id' => $challengeId,
             'email_hint' => $this->maskEmail((string)$user['email'])
         ]);
     }
 
-    /**
-     * En modo shadow, ejecuta el flujo 2FA sin tocar la respuesta principal del login.
-     */
     private function triggerShadowTwoFactor(array $user): void
     {
         try {
-            $dummyResponse = new \Slim\Psr7\Response();
-            $this->startTwoFactorChallenge($user, $dummyResponse);
+            $this->startTwoFactorChallenge($user);
         } catch (Throwable $e) {
             error_log('Shadow 2FA error: ' . $e->getMessage());
         }
-    }
-
-    private function issueJwtResponse(array $user, Response $res): Response
-    {
-        $jwt = $this->createJwtToken($user);
-        return $this->json($res, ['token' => $jwt]);
     }
 
     private function createJwtToken(array $user): string
@@ -466,11 +430,6 @@ class AuthController {
         ];
 
         return JWT::encode($payload, $_ENV['JWT_SECRET'], 'HS256');
-    }
-
-    private function getUserById(int $id): ?array
-    {
-        return $this->userRepository->findById($id);
     }
 
     private function publicUser(array $user): array
@@ -521,11 +480,6 @@ class AuthController {
         return (string)$fullName;
     }
 
-    private function usernameExists(string $username, ?int $excludeUserId = null): bool
-    {
-        return $this->userRepository->usernameExists($username, $excludeUserId);
-    }
-
     private function isValidAvatarUrl(string $url): bool
     {
         if ($url === '') return true;
@@ -574,7 +528,6 @@ class AuthController {
             throw new RuntimeException('No se pudo guardar la imagen');
         }
 
-        // Limpieza de avatar anterior si era local.
         if ($currentAvatarUrl !== '' && str_starts_with($currentAvatarUrl, '/uploads/avatars/')) {
             $oldRelative = ltrim($currentAvatarUrl, '/');
             $oldAbsolute = __DIR__ . '/../../public/' . $oldRelative;
@@ -584,12 +537,6 @@ class AuthController {
         }
 
         return '/uploads/avatars/' . $filename;
-    }
-
-    private function json(Response $res, array $payload, int $status = 200): Response
-    {
-        $res->getBody()->write(json_encode($payload, JSON_UNESCAPED_UNICODE));
-        return $res->withStatus($status)->withHeader('Content-Type', 'application/json');
     }
 
     private function generateUuidV4(): string
@@ -628,7 +575,7 @@ class AuthController {
         $counter = 1;
 
         while (true) {
-            if (!$this->usernameExists($candidate)) {
+            if (!$this->userRepository->usernameExists($candidate)) {
                 return $candidate;
             }
 
@@ -654,16 +601,6 @@ class AuthController {
         return $value;
     }
 
-    private function consumeRateLimit(
-        string $bucket,
-        string $rawKey,
-        int $maxRequests,
-        int $windowSeconds,
-        int &$retryAfter = 0
-    ): bool {
-        return $this->rateLimitRepository->consume($bucket, $rawKey, $maxRequests, $windowSeconds, $retryAfter);
-    }
-
     private function getTwoFactorMode(): string
     {
         $mode = strtolower(trim((string)($_ENV['AUTH_2FA_MODE'] ?? 'enforced')));
@@ -673,11 +610,13 @@ class AuthController {
         return $mode;
     }
 
-    private function isStrongPassword(string $password): bool {
+    private function isStrongPassword(string $password): bool
+    {
         return (bool)preg_match('/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/', $password);
     }
 
-    private function shouldBypassTwoFactorOnMailFailure(): bool {
+    private function shouldBypassTwoFactorOnMailFailure(): bool
+    {
         $bypassEnabled = filter_var(
             $_ENV['AUTH_DEV_BYPASS_2FA_ON_MAIL_FAILURE'] ?? 'false',
             FILTER_VALIDATE_BOOLEAN
@@ -689,5 +628,10 @@ class AuthController {
 
         $appEnv = strtolower(trim((string)($_ENV['APP_ENV'] ?? 'production')));
         return in_array($appEnv, ['dev', 'development', 'local', 'test'], true);
+    }
+
+    private function result(int $status, array $payload): array
+    {
+        return ['status' => $status, 'payload' => $payload];
     }
 }
