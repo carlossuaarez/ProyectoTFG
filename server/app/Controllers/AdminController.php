@@ -2,105 +2,30 @@
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 
+require_once __DIR__ . '/../Core/Http.php';
+require_once __DIR__ . '/../Services/AdminService.php';
+
 class AdminController
 {
-    private PDO $db;
+    private AdminService $service;
 
     public function __construct(PDO $db)
     {
-        $this->db = $db;
+        $this->service = new AdminService($db);
     }
 
-    // Panel admin: listar todos los torneos con campos ampliados
     public function getAllTournaments(Request $req, Response $res): Response
     {
-        $user = (array)$req->getAttribute('user');
-        if (($user['role'] ?? '') !== 'admin') {
-            return $this->json($res, ['error' => 'No autorizado'], 403);
-        }
-
-        try {
-            $stmt = $this->db->query("
-                SELECT
-                    t.id,
-                    t.name,
-                    t.description,
-                    t.game,
-                    t.type,
-                    t.max_teams,
-                    COALESCE(tc.teams_count, 0) AS teams_count,
-                    CASE
-                        WHEN COALESCE(tc.teams_count, 0) >= t.max_teams THEN 1
-                        ELSE 0
-                    END AS is_full,
-                    t.format,
-                    t.start_date,
-                    t.start_time,
-                    t.prize,
-                    t.location_name,
-                    t.location_address,
-                    t.location_lat,
-                    t.location_lng,
-                    t.is_online,
-                    t.visibility,
-                    t.access_code_last4,
-                    t.created_by,
-                    u.username AS created_by_username,
-                    t.created_at
-                FROM tournaments t
-                LEFT JOIN users u ON u.id = t.created_by
-                LEFT JOIN (
-                    SELECT tournament_id, COUNT(*) AS teams_count
-                    FROM teams
-                    GROUP BY tournament_id
-                ) tc ON tc.tournament_id = t.id
-                ORDER BY t.start_date ASC, t.start_time ASC, t.created_at DESC
-            ");
-
-            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-            // Seguridad: nunca exponer access_code_hash en respuestas
-            foreach ($rows as &$row) {
-                unset($row['access_code_hash']);
-            }
-
-            return $this->json($res, $rows);
-        } catch (Throwable $e) {
-            error_log('admin getAllTournaments error: ' . $e->getMessage());
-            return $this->json($res, ['error' => 'No se pudo cargar el panel de administración'], 500);
-        }
+        $result = $this->service->getAllTournaments((array)$req->getAttribute('user'));
+        return Http::fromServiceResult($res, $result);
     }
 
     public function deleteTournament(Request $req, Response $res, array $args): Response
     {
-        $user = (array)$req->getAttribute('user');
-        if (($user['role'] ?? '') !== 'admin') {
-            return $this->json($res, ['error' => 'No autorizado'], 403);
-        }
-
-        $id = (int)($args['id'] ?? 0);
-        if ($id <= 0) {
-            return $this->json($res, ['error' => 'ID de torneo no válido'], 400);
-        }
-
-        try {
-            $stmt = $this->db->prepare("DELETE FROM tournaments WHERE id = ?");
-            $stmt->execute([$id]);
-
-            if ($stmt->rowCount() === 0) {
-                return $this->json($res, ['error' => 'Torneo no encontrado'], 404);
-            }
-
-            return $this->json($res, ['message' => 'Torneo eliminado']);
-        } catch (Throwable $e) {
-            error_log('admin deleteTournament error: ' . $e->getMessage());
-            return $this->json($res, ['error' => 'No se pudo eliminar el torneo'], 500);
-        }
-    }
-
-    private function json(Response $res, array $payload, int $status = 200): Response
-    {
-        $res->getBody()->write(json_encode($payload, JSON_UNESCAPED_UNICODE));
-        return $res->withStatus($status)->withHeader('Content-Type', 'application/json');
+        $result = $this->service->deleteTournament(
+            (array)$req->getAttribute('user'),
+            (int)($args['id'] ?? 0)
+        );
+        return Http::fromServiceResult($res, $result);
     }
 }

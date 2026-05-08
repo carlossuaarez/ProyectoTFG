@@ -30,100 +30,55 @@ function buildDependencies(PDO $db): array
     $matchController = new MatchController($db);
     $notificationController = new NotificationController($db);
 
-    // Mantiene comportamiento actual (autocreación de tablas de notificaciones)
+    // Auto-creación de tablas de notificaciones (idempotente)
     $notificationController->bootstrapTables();
 
     $authMiddleware = new AuthMiddleware();
 
     // ---- Rate limiters auth ----
-    $loginByIpLimiter = new RateLimitMiddleware(
-        $db,
-        'login_ip',
-        20,
-        900,
-        fn(Request $r) => RateLimitMiddleware::extractClientIp($r)
-    );
+    $loginByIpLimiter = new RateLimitMiddleware($db, 'login_ip', 20, 900,
+        fn(Request $r) => RateLimitMiddleware::extractClientIp($r));
 
-    $loginByEmailLimiter = new RateLimitMiddleware(
-        $db,
-        'login_email',
-        8,
-        900,
+    $loginByEmailLimiter = new RateLimitMiddleware($db, 'login_email', 8, 900,
         function (Request $r): string {
             $body = (array)$r->getParsedBody();
             return strtolower(trim((string)($body['email'] ?? '')));
-        }
-    );
+        });
 
-    $googleByIpLimiter = new RateLimitMiddleware(
-        $db,
-        'google_ip',
-        20,
-        900,
-        fn(Request $r) => RateLimitMiddleware::extractClientIp($r)
-    );
+    $googleByIpLimiter = new RateLimitMiddleware($db, 'google_ip', 20, 900,
+        fn(Request $r) => RateLimitMiddleware::extractClientIp($r));
 
-    $twoFaByIpLimiter = new RateLimitMiddleware(
-        $db,
-        'twofa_ip',
-        20,
-        600,
-        fn(Request $r) => RateLimitMiddleware::extractClientIp($r)
-    );
+    $twoFaByIpLimiter = new RateLimitMiddleware($db, 'twofa_ip', 20, 600,
+        fn(Request $r) => RateLimitMiddleware::extractClientIp($r));
 
-    $twoFaByChallengeLimiter = new RateLimitMiddleware(
-        $db,
-        'twofa_challenge',
-        10,
-        600,
+    $twoFaByChallengeLimiter = new RateLimitMiddleware($db, 'twofa_challenge', 10, 600,
         function (Request $r): string {
             $body = (array)$r->getParsedBody();
             return trim((string)($body['challenge_id'] ?? ''));
-        }
-    );
+        });
 
-    $registerByIpLimiter = new RateLimitMiddleware(
-        $db,
-        'register_ip',
-        10,
-        900,
-        fn(Request $r) => RateLimitMiddleware::extractClientIp($r)
-    );
+    $registerByIpLimiter = new RateLimitMiddleware($db, 'register_ip', 10, 900,
+        fn(Request $r) => RateLimitMiddleware::extractClientIp($r));
 
     // ---- Rate limiters torneos privados ----
-    $tournamentDetailLimiter = new RateLimitMiddleware(
-        $db,
-        'tournament_detail_ip_id',
-        60,
-        600,
+    $tournamentDetailLimiter = new RateLimitMiddleware($db, 'tournament_detail_ip_id', 60, 600,
         function (Request $r): string {
             $ip = RateLimitMiddleware::extractClientIp($r);
             $route = RouteContext::fromRequest($r)->getRoute();
             $id = $route ? (string)$route->getArgument('id') : '0';
             return $ip . ':' . $id;
-        }
-    );
+        });
 
-    $tournamentJoinLimiter = new RateLimitMiddleware(
-        $db,
-        'tournament_join_ip_id',
-        30,
-        600,
+    $tournamentJoinLimiter = new RateLimitMiddleware($db, 'tournament_join_ip_id', 30, 600,
         function (Request $r): string {
             $ip = RateLimitMiddleware::extractClientIp($r);
             $route = RouteContext::fromRequest($r)->getRoute();
             $id = $route ? (string)$route->getArgument('id') : '0';
             return $ip . ':' . $id;
-        }
-    );
+        });
 
-    $privateCodeResolveLimiter = new RateLimitMiddleware(
-        $db,
-        'tournament_private_resolve_ip',
-        30,
-        600,
-        fn(Request $r) => RateLimitMiddleware::extractClientIp($r)
-    );
+    $privateCodeResolveLimiter = new RateLimitMiddleware($db, 'tournament_private_resolve_ip', 30, 600,
+        fn(Request $r) => RateLimitMiddleware::extractClientIp($r));
 
     return [
         'controllers' => [

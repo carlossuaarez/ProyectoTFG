@@ -73,6 +73,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../services/api'
+import { publicGet } from '../services/publicApi'
 import TournamentCard from '../components/TournamentCard.vue'
 
 const ACCESS_CODE_STORAGE_KEY = 'tourneyhub_private_codes'
@@ -138,14 +139,17 @@ const homeTournaments = computed(() => {
     .slice(0, 9)
 })
 
+// Listado público de torneos: usa fetch nativo (sin axios) a través de publicApi.js.
+// Es el endpoint que demuestra "comunicación asíncrona cliente/servidor" con
+// la API nativa del navegador, alineado con el recurso de attacomsian sobre XHR/fetch.
 async function fetchHomeTournaments() {
   loading.value = true
   error.value = ''
   try {
-    const res = await api.get('/tournaments')
-    tournaments.value = Array.isArray(res.data) ? res.data : []
+    const data = await publicGet('/tournaments', { silent: true })
+    tournaments.value = Array.isArray(data) ? data : []
   } catch (err) {
-    error.value = err.response?.data?.error || 'No se pudieron cargar los torneos de inicio.'
+    error.value = err?.data?.error || err?.message || 'No se pudieron cargar los torneos de inicio.'
   } finally {
     loading.value = false
   }
@@ -175,7 +179,7 @@ async function resolvePrivateCode() {
 
   privateCodeLoading.value = true
   try {
-    const res = await api.post('/tournaments/private/resolve', { access_code: code })
+    const res = await api.post('/tournaments/private/resolve', { access_code: code }, { silent: true })
     const tournamentId = Number(res?.data?.tournament_id || 0)
 
     if (!Number.isInteger(tournamentId) || tournamentId <= 0) {
